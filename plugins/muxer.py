@@ -305,7 +305,7 @@ async def queue_worker(client: Client):
 @Client.on_message(filters.command('restart') & check_user & filters.private)
 async def restart_bot(client, message):
     logger.warning("/restart by %s", message.from_user.id)
-    await message.reply_text("♻️ Restarting… stopping all jobs and resetting settings.")
+    await message.reply_text("♻️ Your All task and setting now reset ✅")
 
     # 1) Stop any running ffmpeg processes from our tracked jobs
     try:
