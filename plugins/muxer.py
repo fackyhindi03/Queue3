@@ -77,7 +77,7 @@ async def enqueue_nosub(client, message):
     await _ask_for_name(client, chat_id, 'soft', vid, sub, final_name)
 
 
-@Client.on_message(filters.text & check_user & filters.private & ~filters.command)
+@Client.on_message(filters.text & check_user & filters.private & ~filters.command())
 async def handle_rename_reply(client, message):
     chat_id = message.from_user.id
     
