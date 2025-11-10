@@ -5,7 +5,7 @@ from helper_func.mux   import softmux_vid, hardmux_vid, nosub_encode, running_jo
 from helper_func.progress_bar import progress_bar
 from helper_func.dbhelper       import Database as Db
 from config import Config
-import uuid, time, os, asyncio
+import uuid, time, os, asyncio, sys, sqlite3
 
 db = Db()
 
@@ -87,6 +87,41 @@ async def enqueue_nosub(client, message):
 
     await job_queue.put(Job(job_id, 'nosub', chat_id, vid, None, final_name, status))
     db.erase(chat_id)
+
+
+@Client.on_message(filters.command('m3u8') & check_user & filters.private)
+async def enqueue_m3u8(client, message):
+    # Usage: /m3u8 <m3u8_url> [output_name.mp4]
+    parts = message.text.split(maxsplit=2)
+    if len(parts) < 2:
+        return await message.reply_text(
+            "Usage:\n/m3u8 <m3u8_url> [output_name.mp4]",
+            parse_mode=ParseMode.HTML
+        )
+
+    url = parts[1].strip()
+    # Simple validation
+    if not (url.startswith("http://") or url.startswith("https://")) or ".m3u8" not in url:
+        return await message.reply_text("Please provide a valid .m3u8 URL.", parse_mode=ParseMode.HTML)
+
+    # Optional custom name
+    final_name = parts[2].strip() if len(parts) == 3 else f"{uuid.uuid4().hex[:6]}_enc.mp4"
+
+    chat_id = message.from_user.id
+    # Reset any previous staged files for this user
+    db.erase(chat_id)
+    # Store the URL as 'vid_name' so nosub_encode picks it up
+    db.set_vid_filename(chat_id, url)
+    db.set_filename(chat_id, final_name)
+
+    job_id  = uuid.uuid4().hex[:8]
+    status  = await client.send_message(
+        chat_id,
+        f"🧾 Job <code>{job_id}</code> enqueued at position {job_queue.qsize() + 1}",
+        parse_mode=ParseMode.HTML
+    )
+    await job_queue.put(Job(job_id, 'nosub', chat_id, url, None, final_name, status))
+
 
 @Client.on_message(filters.command('cancel') & check_user & filters.private)
 async def cancel_job(client, message):
@@ -172,3 +207,37 @@ async def queue_worker(client: Client):
                     pass
 
         job_queue.task_done()
+
+
+@Client.on_message(filters.command('restart') & check_user & filters.private)
+async def restart_bot(client, message):
+    await message.reply_text("♻️ Restarting… stopping all jobs and resetting settings.")
+
+    # 1) Stop any running ffmpeg processes from our tracked jobs
+    try:
+        for jid, entry in list(running_jobs.items()):
+            try:
+                entry['proc'].kill()
+            except:
+                pass
+            for t in entry.get('tasks', []):
+                try:
+                    t.cancel()
+                except:
+                    pass
+            running_jobs.pop(jid, None)
+    except:
+        pass
+
+    # 2) Clear the DB table to reset staged files/filenames for everyone
+    try:
+        conn = sqlite3.connect('muxdb.sqlite', check_same_thread=False)
+        conn.execute('DELETE FROM muxbot;')
+        conn.commit()
+        conn.close()
+    except:
+        pass
+
+    # 3) Restart the current Python process (works on most hosts)
+    await asyncio.sleep(1)
+    os.execv(sys.executable, [sys.executable] + sys.argv)
