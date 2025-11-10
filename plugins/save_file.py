@@ -212,17 +212,21 @@ async def save_url(client, message):
     sent = await client.send_message(chat_id, "Fetching link…")
     t0 = time.time()
 
-    # HLS fast-path: don't download .m3u8 – store URL and ask user to run /nosub
+    # HLS fast-path: don't download .m3u8 – store URL
     if url.lower().endswith(".m3u8") or "m3u8" in url.lower():
-        db.erase(chat_id)
+        # db.erase(chat_id) # Don't erase! We want to keep the subtitle if it exists
+        
         # set the m3u8 URL as the "video"
-        db.put_video(chat_id, url, _pick_name_from_url(url))  # (or db.set_vid_filename if your DB has that)
-        # default output name
-        out_name = f"{uuid.uuid4().hex[:6]}_enc.mp4"
-        await sent.edit_text(
-            "HLS link captured. Use /nosub to encode directly from the stream."
-        )
-        return    
+        db.put_video(chat_id, url, _pick_name_from_url(url))
+        
+        # Check if a sub is already waiting
+        if db.check_sub(chat_id):
+            text = 'HLS link captured.\nChoose : [ /softmux , /hardmux , /nosub ]'
+        else:
+            text = 'HLS link captured. Send a subtitle file, or use /nosub to encode without subtitles.'
+
+        await sent.edit_text(text)
+        return
 
     try:
         os.makedirs(Config.DOWNLOAD_DIR, exist_ok=True)
