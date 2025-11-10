@@ -216,10 +216,9 @@ async def save_url(client, message):
     if url.lower().endswith(".m3u8") or "m3u8" in url.lower():
         db.erase(chat_id)
         # set the m3u8 URL as the "video"
-        db.set_video(chat_id, url, url)   # (or db.set_vid_filename if your DB has that)
+        db.put_video(chat_id, url, _pick_name_from_url(url))  # (or db.set_vid_filename if your DB has that)
         # default output name
         out_name = f"{uuid.uuid4().hex[:6]}_enc.mp4"
-        db.set_filename(chat_id, out_name)  # (or db.set_filename)
         await sent.edit_text(
             "HLS link captured. Use /nosub to encode directly from the stream."
         )
