@@ -1,3 +1,4 @@
+from chat import Chat  
 from pyrogram import Client, filters
 from pyrogram.enums import ParseMode
 from helper_func.queue import Job, job_queue
@@ -32,11 +33,11 @@ async def _is_pending_rename(filt, c, m):
 
 is_pending_rename_filter = filters.create(_is_pending_rename)
 
+# THIS IS THE NEW FUNCTION
 async def _ask_for_name(client, chat_id, mode, vid, sub, default_name):
     status = await client.send_message(
         chat_id,
-        "✍️ Send the output file name <b>with extension</b> (or type <code>default</code> to keep it):\n\n"
-        f"<code>{default_name}</code>",
+        text=Chat.RENAME_PROMPT.format(default_name), # <--- THE CHANGE IS HERE
         parse_mode=ParseMode.HTML
     )
     _PENDING_RENAME[chat_id] = dict(
