@@ -248,14 +248,68 @@ async def read_stderr(start: float, msg, proc, job_id: str, total_dur: float, in
 
 async def softmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
     start    = time.time()
-    vid_path = os.path.join(Config.DOWNLOAD_DIR, vid_filename)
+    
+    is_url  = vid_filename.startswith(("http://","https://"))
+    vid_path = vid_filename if is_url else os.path.join(Config.DOWNLOAD_DIR, vid_filename)
     sub_path = os.path.join(Config.DOWNLOAD_DIR, sub_filename)
+    
     base     = os.path.splitext(vid_filename)[0]
     output   = f"{base}_soft.mkv"
     out_path = os.path.join(Config.DOWNLOAD_DIR, output)
     sub_ext  = os.path.splitext(sub_filename)[1].lstrip('.')
 
-    total_dur  = await _probe_duration(vid_path)
+    temp_vid_to_delete = None
+
+    if is_url:
+        # --- NEW: Download the video file first ---
+        await msg.edit(
+            f"Downloading video for soft-mux (<code>{job_id}</code>)…\n"
+            "This is required for -c copy.",
+            parse_mode=ParseMode.HTML
+        )
+        
+        base = uuid.uuid4().hex[:8]
+        temp_vid_file = f"{base}_temp_video.mp4"
+        temp_vid_path = os.path.join(Config.DOWNLOAD_DIR, temp_vid_file)
+        temp_vid_to_delete = temp_vid_file # Mark for deletion
+        
+        host = urlparse(vid_path).hostname or ""
+        yt_dlp_cmd_parts = ['yt-dlp']
+        
+        if "dmcdn.net" in host or "dailymotion.com" in host:
+            logger.info("Applying Dailymotion headers to yt-dlp download")
+            yt_dlp_cmd_parts += ["--user-agent", "Mozilla/5.0", "--referer", "https://www.dailymotion.com"]
+        
+        # Add output format and URL
+        yt_dlp_cmd_parts += ['-o', temp_vid_path, vid_path]
+        
+        proc = await asyncio.create_subprocess_exec(
+            *yt_dlp_cmd_parts,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        # We can't use read_stderr here as it's not ffmpeg progress
+        # So we just wait for the download to finish
+        stdout, stderr = await proc.communicate()
+        
+        if proc.returncode != 0:
+            logger.error("yt-dlp download for softmux failed: %s", stderr.decode(errors='ignore'))
+            await msg.edit(
+                f"❌ yt-dlp download failed for job <code>{job_id}</code>:\n"
+                f"<pre>{stderr.decode(errors='ignore')[-1000:]}</pre>",
+                parse_mode=ParseMode.HTML
+            )
+            return False
+        
+        # Success! Now set vid_path to our new local file
+        vid_path = temp_vid_path
+        logger.info("Download complete. Proceeding to soft-mux.")
+
+
+    # --- Original ffmpeg -c copy logic (runs on local file) ---
+    
+    total_dur  = await _probe_duration(vid_path) # Probe the local file
     input_size = os.path.getsize(vid_path) if os.path.exists(vid_path) else 0
 
     proc = await asyncio.create_subprocess_exec(
@@ -282,7 +336,16 @@ async def softmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
     )
 
     await asyncio.wait([reader, waiter])
+    
+    full_stderr_lines = reader.result() or []
     running_jobs.pop(job_id, None)
+
+    # Delete the temporary downloaded video if one exists
+    if temp_vid_to_delete:
+        try:
+            os.remove(os.path.join(Config.DOWNLOAD_DIR, temp_vid_to_delete))
+        except Exception as e:
+            logger.warning("Could not delete temp softmux file: %s", e)
 
     if proc.returncode == 0:
         await msg.edit(
@@ -292,24 +355,24 @@ async def softmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
         await asyncio.sleep(2)
         return output
     else:
-        err = await proc.stderr.read()
+        full_stderr_text = "".join(full_stderr_lines)
 
         try:
             os.makedirs("logs", exist_ok=True)
             with open(os.path.join("logs", f"ffmpeg_{job_id}.log"), "a", encoding="utf-8", errors="ignore") as _f:
-                _f.write("\n\n=== FINAL STDERR ===\n")
-                _f.write(err.decode(errors='ignore'))
+                _f.write(f"\n\n=== PROCESS EXITED WITH CODE {proc.returncode} ===")
         except:
             pass
-        logger.error("Soft-mux failed for job %s — tail: %s", job_id, err.decode(errors="ignore")[-1200:])
+        
+        logger.error("Soft-mux failed for job %s — tail: %s", job_id, full_stderr_text[-1500:])
+        err_preview = full_stderr_text[-1000:]
         
         await msg.edit(
-            "❌ Error during soft-mux!\n\n"
-            f"<pre>{err.decode(errors='ignore')}</pre>",
+            f"❌ Error during soft-mux! (Job: <code>{job_id}</code>)\n\n"
+            f"<pre>{err_preview}</pre>",
             parse_mode=ParseMode.HTML
         )
         return False
-
 
 # ============ HARD-MUX ============
 
@@ -324,11 +387,13 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
     crf    = cfg.get('crf','25')
     preset = cfg.get('preset','faster')
 
-    vid_path = os.path.join(Config.DOWNLOAD_DIR, vid_filename)
+    is_url  = vid_filename.startswith(("http://","https://"))
+    vid_path = vid_filename if is_url else os.path.join(Config.DOWNLOAD_DIR, vid_filename)
     sub_path = os.path.join(Config.DOWNLOAD_DIR, sub_filename)
 
+    # Use our new smart probe for duration
     total_dur  = await _probe_duration(vid_path)
-    input_size = os.path.getsize(vid_path) if os.path.exists(vid_path) else 0
+    input_size = 0 if is_url else (os.path.getsize(vid_path) if os.path.exists(vid_path) else 0)
 
     vf = [f"subtitles={sub_path}:fontsdir={Config.FONTS_DIR}"]
     if res != 'original':
@@ -337,23 +402,71 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
         vf.append(f"fps={fps}")
     vf_arg = ",".join(vf)
 
-    base     = os.path.splitext(vid_filename)[0]
+    if is_url:
+        base = uuid.uuid4().hex[:8]
+    else:
+        base = os.path.splitext(vid_filename)[0]
+        
     output   = f"{base}_hard.mp4"
     out_path = os.path.join(Config.DOWNLOAD_DIR, output)
 
-    proc = await asyncio.create_subprocess_exec(
-        'ffmpeg','-hide_banner',
-        '-progress', 'pipe:2', '-nostats',
-        '-i', vid_path,
-        '-vf', vf_arg,
-        '-c:v', codec, '-preset', preset, '-crf', crf,
-        '-map','0:v:0','-map','0:a:0?',
-        '-c:a','copy',
-        '-y', out_path,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
+    if is_url:
+        # ---- NEW: Build yt-dlp + ffmpeg shell command ----
+        
+        # Build the yt-dlp part
+        host = urlparse(vid_path).hostname or ""
+        yt_dlp_cmd_parts = ['yt-dlp', '-o', '-'] # Output to stdout
+        
+        if "dmcdn.net" in host or "dailymotion.com" in host:
+            logger.info("Applying Dailymotion headers to yt-dlp")
+            yt_dlp_cmd_parts += ["--user-agent", "Mozilla/5.0", "--referer", "https::/www.dailymotion.com"]
+        
+        yt_dlp_cmd_parts.append(vid_path)
+        yt_dlp_cmd_str = " ".join([shlex.quote(p) for p in yt_dlp_cmd_parts])
+        
+        # Build the ffmpeg part
+        ffmpeg_cmd_parts = [
+            'ffmpeg','-hide_banner',
+            '-progress', 'pipe:2', '-nostats',
+            '-i', '-',         # Read video from stdin (yt-dlp)
+            '-i', sub_path,    # Read subtitle from file
+            '-vf', vf_arg,
+            '-c:v', codec, '-preset', preset, '-crf', crf,
+            '-map','0:v:0','-map','0:a:0?', # Map video/audio from 1st input (pipe)
+            '-map', '1:s:0?',  # Map subtitles from 2nd input (file)
+            '-c:a','copy',
+            '-y', out_path
+        ]
+        ffmpeg_cmd_str = " ".join([shlex.quote(p) for p in ffmpeg_cmd_parts])
 
+        # Create the full shell command
+        full_command = f"{yt_dlp_cmd_str} | {ffmpeg_cmd_str}"
+        logger.info(f"Starting shell pipe for job {job_id}: yt-dlp | ffmpeg (hardmux)")
+        
+        proc = await asyncio.create_subprocess_shell(
+            full_command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+    else:
+        # ---- OLD: Original logic for local files ----
+        proc = await asyncio.create_subprocess_exec(
+            'ffmpeg','-hide_banner',
+            '-progress', 'pipe:2', '-nostats',
+            '-i', vid_path,
+            '-i', sub_path, # Add subtitle file as second input
+            '-vf', vf_arg,
+            '-c:v', codec, '-preset', preset, '-crf', crf,
+            '-map','0:v:0','-map','0:a:0?',
+            '-map', '1:s:0?', # Map subs from second input
+            '-c:a','copy',
+            '-y', out_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+
+    # --- THIS PART IS THE SAME AS THE NEW nosub_encode (with error capture) ---
     reader = asyncio.create_task(read_stderr(start, msg, proc, job_id, total_dur, input_size))
     waiter = asyncio.create_task(proc.wait())
     running_jobs[job_id] = {'proc': proc, 'tasks': [reader, waiter]}
@@ -365,6 +478,8 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
     )
 
     await asyncio.wait([reader, waiter])
+    
+    full_stderr_lines = reader.result() or []
     running_jobs.pop(job_id, None)
 
     if proc.returncode == 0:
@@ -375,24 +490,24 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
         await asyncio.sleep(2)
         return output
     else:
-        err = await proc.stderr.read()
+        full_stderr_text = "".join(full_stderr_lines)
 
         try:
             os.makedirs("logs", exist_ok=True)
             with open(os.path.join("logs", f"ffmpeg_{job_id}.log"), "a", encoding="utf-8", errors="ignore") as _f:
-                _f.write("\n\n=== FINAL STDERR ===\n")
-                _f.write(err.decode(errors='ignore'))
+                _f.write(f"\n\n=== PROCESS EXITED WITH CODE {proc.returncode} ===")
         except:
             pass
-        logger.error("Hard-mux failed for job %s — tail: %s", job_id, err.decode(errors="ignore")[-1200:])
+        
+        logger.error("Hard-mux failed for job %s — tail: %s", job_id, full_stderr_text[-1500:])
+        err_preview = full_stderr_text[-1000:] 
         
         await msg.edit(
-            "❌ Error during hard-mux!\n\n"
-            f"<pre>{err.decode(errors='ignore')}</pre>",
+            f"❌ Error during hard-mux! (Job: <code>{job_id}</code>)\n\n"
+            f"<pre>{err_preview}</pre>",
             parse_mode=ParseMode.HTML
         )
         return False
-
 
 # ============ NO-SUB (encode only) ============
 
