@@ -30,6 +30,7 @@ async def _ask_for_name(client, chat_id, mode, vid, sub, default_name):
 
 @Client.on_message(filters.command('softmux') & check_user & filters.private)
 async def enqueue_soft(client, message):
+    logger.info("/softmux by %s", message.from_user.id)
     chat_id = message.from_user.id
     vid     = db.get_vid_filename(chat_id)
     sub     = db.get_sub_filename(chat_id)
@@ -52,6 +53,7 @@ async def enqueue_soft(client, message):
 
 @Client.on_message(filters.command('hardmux') & check_user & filters.private)
 async def enqueue_hard(client, message):
+    logger.info("/hardmux by %s", message.from_user.id)
     chat_id = message.from_user.id
     vid     = db.get_vid_filename(chat_id)
     sub     = db.get_sub_filename(chat_id)
@@ -74,6 +76,7 @@ async def enqueue_hard(client, message):
 
 @Client.on_message(filters.command('nosub') & check_user & filters.private)
 async def enqueue_nosub(client, message):
+    logger.info("/nosub by %s", message.from_user.id)
     chat_id = message.from_user.id
     vid     = db.get_vid_filename(chat_id)
     if not vid:
@@ -93,6 +96,7 @@ async def enqueue_nosub(client, message):
 
 @Client.on_message(filters.command('m3u8') & check_user & filters.private)
 async def enqueue_m3u8(client, message):
+    logger.info("/m3u8 by %s", message.from_user.id)
     # Usage: /m3u8 <m3u8_url> [output_name.mp4]
     parts = message.text.split(maxsplit=2)
     if len(parts) < 2:
@@ -127,6 +131,7 @@ async def enqueue_m3u8(client, message):
 
 @Client.on_message(filters.command('cancel') & check_user & filters.private)
 async def cancel_job(client, message):
+    logger.info("/cancel by %s", message.from_user.id)
     if len(message.command) != 2:
         return await message.reply_text("Usage: /cancel <job_id>", parse_mode=ParseMode.HTML)
     target = message.command[1]
@@ -165,54 +170,74 @@ async def queue_worker(client: Client):
     while True:
         job = await job_queue.get()
 
-        await job.status_msg.edit(
-            f"▶️ Starting <code>{job.job_id}</code> ({job.mode})…  "
-            f"Use <code>/cancel {job.job_id}</code> to abort.",
-            parse_mode=ParseMode.HTML
-        )
-
-        if job.mode == 'soft':
-            out_file = await softmux_vid(job.vid, job.sub, msg=job.status_msg)
-        elif job.mode == 'hard':
-            out_file = await hardmux_vid(job.vid, job.sub, msg=job.status_msg)
-        else:  # nosub
-            out_file = await nosub_encode(job.vid, msg=job.status_msg)
-
-        if out_file:
-            # rename to desired final name
-            src = os.path.join(Config.DOWNLOAD_DIR, out_file)
-            dst = os.path.join(Config.DOWNLOAD_DIR, job.final_name)
-            try:
-                os.rename(src, dst)
-            except Exception:
-                dst = src  # fallback
-
-            # upload with progress UI
-            t0 = time.time()
-            await client.send_document(
-                job.chat_id,
-                document=dst,
-                caption=job.final_name,
-                file_name=job.final_name,   # keep nice filename
-                progress=progress_bar,
-                progress_args=('Uploading…', job.status_msg, t0, job.job_id)
+        try:
+            await job.status_msg.edit(
+                f"▶️ Starting <code>{job.job_id}</code> ({job.mode})…  "
+                f"Use <code>/cancel {job.job_id}</code> to abort.",
+                parse_mode=ParseMode.HTML
             )
 
-            await job.status_msg.edit(f"✅ Job <code>{job.job_id}</code> done.", parse_mode=ParseMode.HTML)
+            if job.mode == 'soft':
+                out_file = await softmux_vid(job.vid, job.sub, msg=job.status_msg)
+            elif job.mode == 'hard':
+                out_file = await hardmux_vid(job.vid, job.sub, msg=job.status_msg)
+            else:  # nosub
+                out_file = await nosub_encode(job.vid, msg=job.status_msg)
 
-            # cleanup best-effort
-            for fn in (job.vid, job.sub, job.final_name):
+            if not out_file:
+                await job.status_msg.edit(
+                    f"❌ Job <code>{job.job_id}</code> failed. Check logs/ffmpeg_{job.job_id}.log",
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                # rename to desired final name
+                src = os.path.join(Config.DOWNLOAD_DIR, out_file)
+                dst = os.path.join(Config.DOWNLOAD_DIR, job.final_name)
                 try:
-                    if fn:
-                        os.remove(os.path.join(Config.DOWNLOAD_DIR, fn))
-                except:
-                    pass
+                    os.rename(src, dst)
+                except Exception:
+                    dst = src
 
-        job_queue.task_done()
+                # upload with progress UI
+                t0 = time.time()
+                await client.send_document(
+                    job.chat_id,
+                    document=dst,
+                    caption=job.final_name,
+                    file_name=job.final_name,
+                    progress=progress_bar,
+                    progress_args=('Uploading…', job.status_msg, t0, job.job_id)
+                )
+
+                await job.status_msg.edit(
+                    f"✅ Job <code>{job.job_id}</code> done.",
+                    parse_mode=ParseMode.HTML
+                )
+
+                # cleanup best-effort
+                for fn in (job.vid, job.sub, job.final_name):
+                    try:
+                        if fn:
+                            os.remove(os.path.join(Config.DOWNLOAD_DIR, fn))
+                    except:
+                        pass
+
+        except Exception:
+            logger.exception("Unhandled error in queue_worker for job %s", job.job_id)
+            try:
+                await job.status_msg.edit(
+                    f"💥 Unexpected error in <code>{job.job_id}</code>. See <code>logs/bot.log</code>.",
+                    parse_mode=ParseMode.HTML
+                )
+            except:
+                pass
+        finally:
+            job_queue.task_done()
 
 
 @Client.on_message(filters.command('restart') & check_user & filters.private)
 async def restart_bot(client, message):
+    logger.warning("/restart by %s", message.from_user.id)
     await message.reply_text("♻️ Restarting… stopping all jobs and resetting settings.")
 
     # 1) Stop any running ffmpeg processes from our tracked jobs
