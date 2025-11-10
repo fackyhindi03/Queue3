@@ -358,11 +358,14 @@ async def nosub_encode(vid_filename: str, msg, job_id: str):
     is_url  = vid_filename.startswith(("http://","https://"))
     vid_path = vid_filename if is_url else os.path.join(Config.DOWNLOAD_DIR, vid_filename)
     
+    # ALWAYS try to probe the duration. 
+    # _probe_duration will work for URLs and files.
+    # If it fails on a stream, it will correctly return 0.0.
+    total_dur = await _probe_duration(vid_path)
+    
     if is_url:
-        total_dur = 0.0  # We can't easily probe a stream
         input_size = 0
     else:
-        total_dur  = await _probe_duration(vid_path)
         input_size = os.path.getsize(vid_path) if os.path.exists(vid_path) else 0
 
     vf = []
