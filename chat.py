@@ -47,7 +47,7 @@ You are not authorized to use this bot.
 
     RENAME_PROMPT = """✍️ Send the output file name <b>with extension</b> (or type <code>default</code> to keep it):
 
-<code>{}</code>
+📁 Your Current File name:- <code>{}</code>
 """
 
     FILE_SIZE_ERROR = "❌ <b>ERROR:</b> Unable to extract file size from the URL!\n\n💡 <b>Credits:</b> @Cybrion"
