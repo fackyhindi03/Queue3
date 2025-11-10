@@ -77,7 +77,7 @@ async def enqueue_hard(client, message):
     # Get the default name
     final_name = db.get_filename(chat_id)
     # Ask the user for a new name
-    await _ask_for_name(client, chat_id, 'soft', vid, sub, final_name)
+    await _ask_for_name(client, chat_id, 'hard', vid, sub, final_name)
     
 @Client.on_message(filters.command('nosub') & check_user & filters.private)
 async def enqueue_nosub(client, message):
@@ -90,7 +90,7 @@ async def enqueue_nosub(client, message):
     # Get the default name
     final_name = db.get_filename(chat_id)
     # Ask the user for a new name
-    await _ask_for_name(client, chat_id, 'soft', vid, sub, final_name)
+    await _ask_for_name(client, chat_id, 'nosub', vid, sub, final_name)
 
 
 @Client.on_message(filters.text & check_user & filters.private & is_pending_rename_filter)
