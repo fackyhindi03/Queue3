@@ -22,11 +22,15 @@ async def _check_user(filt, client, message):
 check_user = filters.create(_check_user)
 
 # ADD THIS NEW FILTER
-async def _is_not_command(filt, c, m):
-    if m.text and m.text.startswith("/"):
+async def _is_pending_rename(filt, c, m):
+    # 1. Check if it's a text message
+    if not m.text or m.text.startswith("/"):
         return False
-    return True
-is_not_command_filter = filters.create(_is_not_command)
+    
+    # 2. Check if this user is actually in the rename-pending dictionary
+    return m.from_user.id in _PENDING_RENAME
+
+is_pending_rename_filter = filters.create(_is_pending_rename)
 
 async def _ask_for_name(client, chat_id, mode, vid, sub, default_name):
     status = await client.send_message(
@@ -89,7 +93,7 @@ async def enqueue_nosub(client, message):
     await _ask_for_name(client, chat_id, 'soft', vid, sub, final_name)
 
 
-@Client.on_message(filters.text & check_user & filters.private & is_not_command_filter)
+@Client.on_message(filters.text & check_user & filters.private & is_pending_rename_filter)
 async def handle_rename_reply(client, message):
     chat_id = message.from_user.id
     
