@@ -177,7 +177,7 @@ async def read_stderr(start: float, msg, proc, job_id: str, total_dur: float, in
         pass
 # ============ SOFT-MUX ============
 
-async def softmux_vid(vid_filename: str, sub_filename: str, msg):
+async def softmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
     start    = time.time()
     vid_path = os.path.join(Config.DOWNLOAD_DIR, vid_filename)
     sub_path = os.path.join(Config.DOWNLOAD_DIR, sub_filename)
@@ -202,7 +202,6 @@ async def softmux_vid(vid_filename: str, sub_filename: str, msg):
         stderr=asyncio.subprocess.PIPE
     )
 
-    job_id = uuid.uuid4().hex[:8]
     reader = asyncio.create_task(read_stderr(start, msg, proc, job_id, total_dur, input_size))
     waiter = asyncio.create_task(proc.wait())
     running_jobs[job_id] = {'proc': proc, 'tasks': [reader, waiter]}
@@ -245,7 +244,8 @@ async def softmux_vid(vid_filename: str, sub_filename: str, msg):
 
 # ============ HARD-MUX ============
 
-async def hardmux_vid(vid_filename: str, sub_filename: str, msg):
+async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
+
     start    = time.time()
     cfg      = SettingsManager.get(msg.chat.id)
 
@@ -285,7 +285,6 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg):
         stderr=asyncio.subprocess.PIPE
     )
 
-    job_id = uuid.uuid4().hex[:8]
     reader = asyncio.create_task(read_stderr(start, msg, proc, job_id, total_dur, input_size))
     waiter = asyncio.create_task(proc.wait())
     running_jobs[job_id] = {'proc': proc, 'tasks': [reader, waiter]}
@@ -328,7 +327,7 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg):
 
 # ============ NO-SUB (encode only) ============
 
-async def nosub_encode(vid_filename: str, msg):
+async def nosub_encode(vid_filename: str, msg, job_id: str):
     start    = time.time()
     cfg      = SettingsManager.get(msg.chat.id)
 
@@ -366,7 +365,6 @@ async def nosub_encode(vid_filename: str, msg):
         stderr=asyncio.subprocess.PIPE
     )
 
-    job_id = uuid.uuid4().hex[:8]
     reader = asyncio.create_task(read_stderr(start, msg, proc, job_id, total_dur, input_size))
     waiter = asyncio.create_task(proc.wait())
     running_jobs[job_id] = {'proc': proc, 'tasks': [reader, waiter]}
