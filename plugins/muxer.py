@@ -16,6 +16,18 @@ async def _check_user(filt, client, message):
     return str(message.from_user.id) in Config.ALLOWED_USERS
 check_user = filters.create(_check_user)
 
+
+async def _check_user(filt, client, message):
+    return str(message.from_user.id) in Config.ALLOWED_USERS
+check_user = filters.create(_check_user)
+
+# ADD THIS NEW FILTER
+async def _is_not_command(filt, c, m):
+    if m.text and m.text.startswith("/"):
+        return False
+    return True
+is_not_command_filter = filters.create(_is_not_command)
+
 async def _ask_for_name(client, chat_id, mode, vid, sub, default_name):
     status = await client.send_message(
         chat_id,
