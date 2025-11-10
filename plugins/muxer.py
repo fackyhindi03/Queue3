@@ -10,6 +10,7 @@ import logging
 logger = logging.getLogger("muxer")
 
 db = Db()
+_PENDING_RENAME = {} 
 
 async def _check_user(filt, client, message):
     return str(message.from_user.id) in Config.ALLOWED_USERS
@@ -40,16 +41,10 @@ async def enqueue_soft(client, message):
         if not sub: text += 'Send a Subtitle File!'
         return await client.send_message(chat_id, text, parse_mode=ParseMode.HTML)
 
+    # Get the default name
     final_name = db.get_filename(chat_id)
-    job_id     = uuid.uuid4().hex[:8]
-    status     = await client.send_message(
-        chat_id,
-        f"🧾 Job <code>{job_id}</code> enqueued at position {job_queue.qsize() + 1}",
-        parse_mode=ParseMode.HTML
-    )
-
-    await job_queue.put(Job(job_id, 'soft', chat_id, vid, sub, final_name, status))
-    db.erase(chat_id)
+    # Ask the user for a new name
+    await _ask_for_name(client, chat_id, 'soft', vid, sub, final_name)
 
 @Client.on_message(filters.command('hardmux') & check_user & filters.private)
 async def enqueue_hard(client, message):
@@ -63,17 +58,11 @@ async def enqueue_hard(client, message):
         if not sub: text += 'Send a Subtitle File!'
         return await client.send_message(chat_id, text, parse_mode=ParseMode.HTML)
 
+    # Get the default name
     final_name = db.get_filename(chat_id)
-    job_id     = uuid.uuid4().hex[:8]
-    status     = await client.send_message(
-        chat_id,
-        f"🧾 Job <code>{job_id}</code> enqueued at position {job_queue.qsize() + 1}",
-        parse_mode=ParseMode.HTML
-    )
-
-    await job_queue.put(Job(job_id, 'hard', chat_id, vid, sub, final_name, status))
-    db.erase(chat_id)
-
+    # Ask the user for a new name
+    await _ask_for_name(client, chat_id, 'soft', vid, sub, final_name)
+    
 @Client.on_message(filters.command('nosub') & check_user & filters.private)
 async def enqueue_nosub(client, message):
     logger.info("/nosub by %s", message.from_user.id)
@@ -82,15 +71,58 @@ async def enqueue_nosub(client, message):
     if not vid:
         return await client.send_message(chat_id, 'First send a Video File', parse_mode=ParseMode.HTML)
 
+    # Get the default name
     final_name = db.get_filename(chat_id)
-    job_id     = uuid.uuid4().hex[:8]
-    status     = await client.send_message(
+    # Ask the user for a new name
+    await _ask_for_name(client, chat_id, 'soft', vid, sub, final_name)
+
+
+@Client.on_message(filters.text & check_user & filters.private & ~filters.command)
+async def handle_rename_reply(client, message):
+    chat_id = message.from_user.id
+    
+    # Check if this user has a pending rename operation
+    pending = _PENDING_RENAME.pop(chat_id, None)
+    if not pending:
+        # If not, it's a regular message, so do nothing
+        return
+
+    # User has replied, get the desired filename
+    user_text = message.text.strip()
+    
+    if user_text.lower() == "default":
+        final_name = pending["default_name"]
+    else:
+        # You might want to add more validation here (e.g., check for .mkv/.mp4)
+        final_name = user_text
+
+    # --- Now we do what the command handlers used to do ---
+    
+    # Delete the "Please send a name" message
+    try:
+        await pending["status_msg"].delete()
+    except:
+        pass
+
+    job_id = uuid.uuid4().hex[:8]
+    status = await client.send_message(
         chat_id,
-        f"🧾 Job <code>{job_id}</code> enqueued at position {job_queue.qsize() + 1}",
+        f"🧾 Job <code>{job_id}</code> (<code>{final_name}</code>) enqueued at position {job_queue.qsize() + 1}",
         parse_mode=ParseMode.HTML
     )
 
-    await job_queue.put(Job(job_id, 'nosub', chat_id, vid, None, final_name, status))
+    # Enqueue the job with all the saved details and the new final_name
+    await job_queue.put(Job(
+        job_id=job_id,
+        mode=pending["mode"],
+        chat_id=chat_id,
+        vid=pending["vid"],
+        sub=pending["sub"],
+        final_name=final_name,
+        status_msg=status
+    ))
+    
+    # Finally, erase the DB entry
     db.erase(chat_id)
 
 
