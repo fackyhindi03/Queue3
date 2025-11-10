@@ -212,6 +212,19 @@ async def save_url(client, message):
     sent = await client.send_message(chat_id, "Fetching link…")
     t0 = time.time()
 
+    # HLS fast-path: don't download .m3u8 – store URL and ask user to run /nosub
+    if url.lower().endswith(".m3u8") or "m3u8" in url.lower():
+        db.erase(chat_id)
+        # set the m3u8 URL as the "video"
+        db.put_video(chat_id, url, url)   # (or db.set_vid_filename if your DB has that)
+        # default output name
+        out_name = f"{uuid.uuid4().hex[:6]}_enc.mp4"
+        db.put_filename(chat_id, out_name)  # (or db.set_filename)
+        await sent.edit_text(
+            "HLS link captured. Use /nosub to encode directly from the stream."
+        )
+        return    
+
     try:
         os.makedirs(Config.DOWNLOAD_DIR, exist_ok=True)
         job_id = uuid.uuid4().hex[:8]
