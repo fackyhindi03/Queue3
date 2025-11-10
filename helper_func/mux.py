@@ -89,6 +89,9 @@ async def read_stderr(start: float, msg, proc, job_id: str, total_dur: float, in
     curr_time = 0.0   # seconds processed
     curr_size = 0     # bytes written (from total_size)
     speed_x   = 0.0
+    
+    # This list will capture all output
+    captured_lines: list[str] = []
 
     os.makedirs("logs", exist_ok=True)
     ff_log_path = os.path.join("logs", f"ffmpeg_{job_id}.log")
@@ -97,6 +100,10 @@ async def read_stderr(start: float, msg, proc, job_id: str, total_dur: float, in
     
     async for raw in readlines(proc.stderr):
         line = raw.decode(errors='ignore')
+        
+        # Add every line to our capture list
+        captured_lines.append(line)
+        
         try:
             ff_log.write(line)
             _wrote += 1
@@ -104,6 +111,7 @@ async def read_stderr(start: float, msg, proc, job_id: str, total_dur: float, in
                 ff_log.flush()
         except:
             pass
+        
         prog = parse_progress(line)
         if not prog:
             continue
@@ -182,6 +190,9 @@ async def read_stderr(start: float, msg, proc, job_id: str, total_dur: float, in
         ff_log.close()
     except:
         pass
+
+    # Return the captured output
+    return captured_lines
 # ============ SOFT-MUX ============
 
 async def softmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
@@ -396,7 +407,12 @@ async def nosub_encode(vid_filename: str, msg, job_id: str):
         parse_mode=ParseMode.HTML
     )
 
+    # This line stays the same
     await asyncio.wait([reader, waiter])
+    
+    # Get the captured lines from the reader task
+    full_stderr_lines = reader.result()
+    
     running_jobs.pop(job_id, None)
 
     if proc.returncode == 0:
@@ -407,20 +423,28 @@ async def nosub_encode(vid_filename: str, msg, job_id: str):
         await asyncio.sleep(2)
         return output
     else:
-        err = await proc.stderr.read()
+        # ---- THIS IS THE MODIFIED ERROR BLOCK ----
+        
+        # Join the captured lines into a single string
+        full_stderr_text = "".join(full_stderr_lines)
 
+        # The log file is already written by read_stderr, but we can add a final note
         try:
             os.makedirs("logs", exist_ok=True)
             with open(os.path.join("logs", f"ffmpeg_{job_id}.log"), "a", encoding="utf-8", errors="ignore") as _f:
-                _f.write("\n\n=== FINAL STDERR ===\n")
-                _f.write(err.decode(errors='ignore'))
+                _f.write(f"\n\n=== FFMPEG EXITED WITH CODE {proc.returncode} ===")
         except:
             pass
-        logger.error("No-sub encode failed for job %s — tail: %s", job_id, err.decode(errors="ignore")[-1200:])
+        
+        # Log the tail of the error
+        logger.error("No-sub encode failed for job %s — tail: %s", job_id, full_stderr_text[-1500:])
+        
+        # Send a preview of the error to the user (Telegram has a message length limit)
+        err_preview = full_stderr_text[-1000:] 
         
         await msg.edit(
-            "❌ Error during encode!\n\n"
-            f"<pre>{err.decode(errors='ignore')}</pre>",
+            f"❌ Error during encode! (Job: <code>{job_id}</code>)\n\n"
+            f"<pre>{err_preview}</pre>",
             parse_mode=ParseMode.HTML
         )
         return False
