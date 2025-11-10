@@ -1,4 +1,4 @@
-import os, time, re, uuid, asyncio, math, logging, shlex
+import os, time, re, uuid, asyncio, math, logging, shlex, json
 from config import Config
 from urllib.parse import urlparse
 from helper_func.settings_manager import SettingsManager
@@ -63,22 +63,73 @@ async def readlines(stream):
         data.extend(await stream.read(1024))
 
 async def _probe_duration(vid_path: str) -> float:
-    """Return total duration (seconds) using ffprobe. 0.0 if unknown."""
-    proc = await asyncio.create_subprocess_exec(
-        'ffprobe',
-        '-v', 'error',
-        '-select_streams', 'v:0',
-        '-show_entries', 'format=duration',
-        '-of', 'default=nw=1:nk=1',
-        vid_path,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
-    out, _ = await proc.communicate()
-    try:
-        return float(out.decode().strip())
-    except Exception:
-        return 0.0
+    """Return total duration (seconds) using ffprobe (for files) or yt-dlp (for URLs). 0.0 if unknown."""
+    
+    is_url = vid_path.startswith(("http://", "https://"))
+    
+    if not is_url:
+        # --- Original ffprobe logic for local files ---
+        proc = await asyncio.create_subprocess_exec(
+            'ffprobe',
+            '-v', 'error',
+            '-select_streams', 'v:0',
+            '-show_entries', 'format=duration',
+            '-of', 'default=nw=1:nk=1',
+            vid_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        out, _ = await proc.communicate()
+        try:
+            return float(out.decode().strip())
+        except Exception:
+            logger.warning("ffprobe failed to get duration for local file: %s", vid_path)
+            return 0.0
+    
+    else:
+        # --- New yt-dlp logic for URLs ---
+        logger.info("Probing duration for URL with yt-dlp: %s", vid_path)
+        
+        host = urlparse(vid_path).hostname or ""
+        yt_dlp_cmd_parts = [
+            'yt-dlp',
+            '--dump-json',
+            '--no-warnings',
+        ]
+        
+        if "dmcdn.net" in host or "dailymotion.com" in host:
+            logger.info("Applying Dailymotion headers to yt-dlp probe")
+            yt_dlp_cmd_parts += ["--user-agent", "Mozilla/5.0", "--referer", "https.www.dailymotion.com"]
+        
+        yt_dlp_cmd_parts.append(vid_path)
+        
+        proc = await asyncio.create_subprocess_exec(
+            *yt_dlp_cmd_parts,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        out, err = await proc.communicate()
+        
+        if proc.returncode != 0:
+            logger.error("yt-dlp probe failed: %s", err.decode(errors='ignore'))
+            return 0.0
+            
+        try:
+            # yt-dlp might output multiple JSON objects (e.g. for playlists)
+            # We'll take the first valid one.
+            for line in out.decode(errors='ignore').splitlines():
+                if line.strip().startswith("{"):
+                    data = json.loads(line)
+                    duration = data.get('duration')
+                    if duration:
+                        logger.info("Found duration via yt-dlp: %s seconds", duration)
+                        return float(duration)
+            
+            logger.warning("yt-dlp probe output did not contain duration.")
+            return 0.0
+        except Exception as e:
+            logger.error("Failed to parse yt-dlp JSON: %s", e, exc_info=True)
+            return 0.0
 
 async def read_stderr(start: float, msg, proc, job_id: str, total_dur: float, input_size: int):
     """
