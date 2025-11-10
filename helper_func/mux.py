@@ -302,7 +302,8 @@ async def nosub_encode(vid_filename: str, msg):
     crf    = cfg.get('crf','27')
     preset = cfg.get('preset','faster')
 
-    vid_path = os.path.join(Config.DOWNLOAD_DIR, vid_filename)
+    is_url  = vid_filename.startswith(("http://","https://"))
+    vid_path = vid_filename if is_url else os.path.join(Config.DOWNLOAD_DIR, vid_filename)
     total_dur  = await _probe_duration(vid_path)
     input_size = os.path.getsize(vid_path) if os.path.exists(vid_path) else 0
 
