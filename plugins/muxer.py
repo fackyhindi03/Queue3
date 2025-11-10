@@ -185,8 +185,26 @@ async def queue_worker(client: Client):
                 out_file = await nosub_encode(job.vid, msg=job.status_msg)
 
             if not out_file:
+                logp = os.path.join("logs", f"ffmpeg_{job.job_id}.log")
+                sent = False
+                if os.path.exists(logp) and os.path.getsize(logp) > 0:
+                    try:
+                        await client.send_document(
+                            job.chat_id,
+                            document=logp,
+                            caption=f"FFmpeg log for job {job.job_id}",
+                            file_name=os.path.basename(logp)
+                        )
+                        sent = True
+                    except:
+                        sent = False
+
                 await job.status_msg.edit(
-                    f"❌ Job <code>{job.job_id}</code> failed. Check logs/ffmpeg_{job.job_id}.log",
+                    "❌ Job <code>{}</code> failed. {}{}".format(
+                        job.job_id,
+                        "Log sent above. " if sent else "",
+                        f"Check <code>{logp}</code>" if not sent else ""
+                    ),
                     parse_mode=ParseMode.HTML
                 )
             else:
