@@ -64,29 +64,13 @@ async def readlines(stream):
 
 async def _probe_duration(vid_path: str) -> float:
     """Return total duration (seconds) using ffprobe. 0.0 if unknown."""
-    args = ['ffmpeg', '-hide_banner', '-progress', 'pipe:2', '-nostats']
-    
-    # HLS manifests may require protocol whitelist even when remote
-    args += ['-protocol_whitelist', 'file,crypto,http,https,tcp,tls']
-    
-    # Optional: relax extension checks (some manifests use .m4s)
-    args += ['-allowed_extensions', 'ALL']
-    
-    # Add headers for hosts that enforce Referer/UA (Dailymotion)
-    host = urlparse(vid_path).hostname or ""
-    if is_url and ("dmcdn.net" in host or "dailymotion.com" in host):
-        args += ['-headers', 'User-Agent: Mozilla/5.0\r\nReferer: https://www.dailymotion.com\r\n']
-    
-    # Input + your existing filter/codec args
-    args += [
-        '-i', vid_path, *vf_args,
-        '-c:v', codec, '-preset', preset, '-crf', crf,
-        '-map', '0:v:0', '-map', '0:a:0?', '-c:a', 'copy',
-        '-y', out_path
-    ]
-    
     proc = await asyncio.create_subprocess_exec(
-        *args,
+        'ffprobe',
+        '-v', 'error',
+        '-select_streams', 'v:0',
+        '-show_entries', 'format=duration',
+        '-of', 'default=nw=1:nk=1',
+        vid_path,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE
     )
@@ -376,17 +360,19 @@ async def nosub_encode(vid_filename: str, msg, job_id: str):
     output   = f"{base}_enc.mp4"
     out_path = os.path.join(Config.DOWNLOAD_DIR, output)
 
-    # Build ffmpeg args so we can inject headers for Dailymotion HLS
     args = ['ffmpeg', '-hide_banner', '-progress', 'pipe:2', '-nostats']
     
-    # If input is a URL and host is Dailymotion/CDN, add headers
-    is_url = vid_path.startswith(("http://", "https://"))
+    # HLS helpers
+    args += ['-protocol_whitelist', 'file,crypto,http,https,tcp,tls']
+    args += ['-allowed_extensions', 'ALL']
+    args += ['-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '10']
+    
+    # Optional headers for hosts that enforce UA/Referer (e.g., dmcdn.net)
     host = urlparse(vid_path).hostname or ""
     if is_url and ("dmcdn.net" in host or "dailymotion.com" in host):
-        # Add UA + Referer; add Cookie here if your log shows 403 requiring it
         args += ['-headers', 'User-Agent: Mozilla/5.0\r\nReferer: https://www.dailymotion.com\r\n']
     
-    # Rest of your options (video filters, codec, mapping)
+    # Input + your existing filter/codec args
     args += [
         '-i', vid_path, *vf_args,
         '-c:v', codec, '-preset', preset, '-crf', crf,
