@@ -1,8 +1,9 @@
-import os, time, re, uuid, asyncio, math
+import os, time, re, uuid, asyncio, math, logging
 from config import Config
 from helper_func.settings_manager import SettingsManager
 from pyrogram.enums import ParseMode
 
+logger = logging.getLogger("mux.ffmpeg")
 # Track running jobs so /cancel can kill ffmpeg
 running_jobs: dict[str, dict] = {}
 
@@ -83,8 +84,16 @@ async def read_stderr(start: float, msg, proc, job_id: str, total_dur: float, in
     curr_size = 0     # bytes written (from total_size)
     speed_x   = 0.0
 
+    os.makedirs("logs", exist_ok=True)
+    ff_log_path = os.path.join("logs", f"ffmpeg_{job_id}.log")
+    ff_log = open(ff_log_path, "a", encoding="utf-8", errors="ignore")
+    
     async for raw in readlines(proc.stderr):
         line = raw.decode(errors='ignore')
+        try:
+            ff_log.write(line)
+        except:
+            pass
         prog = parse_progress(line)
         if not prog:
             continue
@@ -158,7 +167,10 @@ async def read_stderr(start: float, msg, proc, job_id: str, total_dur: float, in
         except:
             pass
 
-
+    try:
+        ff_log.close()
+    except:
+        pass
 # ============ SOFT-MUX ============
 
 async def softmux_vid(vid_filename: str, sub_filename: str, msg):
@@ -209,6 +221,16 @@ async def softmux_vid(vid_filename: str, sub_filename: str, msg):
         return output
     else:
         err = await proc.stderr.read()
+
+        try:
+            os.makedirs("logs", exist_ok=True)
+            with open(os.path.join("logs", f"ffmpeg_{job_id}.log"), "a", encoding="utf-8", errors="ignore") as _f:
+                _f.write("\n\n=== FINAL STDERR ===\n")
+                _f.write(err.decode(errors='ignore'))
+        except:
+            pass
+        logger.error("Encode failed for job %s", job_id)
+        
         await msg.edit(
             "❌ Error during soft-mux!\n\n"
             f"<pre>{err.decode(errors='ignore')}</pre>",
@@ -282,6 +304,16 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg):
         return output
     else:
         err = await proc.stderr.read()
+
+        try:
+            os.makedirs("logs", exist_ok=True)
+            with open(os.path.join("logs", f"ffmpeg_{job_id}.log"), "a", encoding="utf-8", errors="ignore") as _f:
+                _f.write("\n\n=== FINAL STDERR ===\n")
+                _f.write(err.decode(errors='ignore'))
+        except:
+            pass
+        logger.error("Encode failed for job %s", job_id)
+        
         await msg.edit(
             "❌ Error during hard-mux!\n\n"
             f"<pre>{err.decode(errors='ignore')}</pre>",
@@ -353,6 +385,16 @@ async def nosub_encode(vid_filename: str, msg):
         return output
     else:
         err = await proc.stderr.read()
+
+        try:
+            os.makedirs("logs", exist_ok=True)
+            with open(os.path.join("logs", f"ffmpeg_{job_id}.log"), "a", encoding="utf-8", errors="ignore") as _f:
+                _f.write("\n\n=== FINAL STDERR ===\n")
+                _f.write(err.decode(errors='ignore'))
+        except:
+            pass
+        logger.error("Encode failed for job %s", job_id)
+        
         await msg.edit(
             "❌ Error during encode!\n\n"
             f"<pre>{err.decode(errors='ignore')}</pre>",
