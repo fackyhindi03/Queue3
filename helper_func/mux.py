@@ -1,4 +1,4 @@
-import os, time, re, uuid, asyncio, math, logging
+import os, time, re, uuid, asyncio, math, logging, shlex
 from config import Config
 from urllib.parse import urlparse
 from helper_func.settings_manager import SettingsManager
@@ -357,8 +357,13 @@ async def nosub_encode(vid_filename: str, msg, job_id: str):
 
     is_url  = vid_filename.startswith(("http://","https://"))
     vid_path = vid_filename if is_url else os.path.join(Config.DOWNLOAD_DIR, vid_filename)
-    total_dur  = await _probe_duration(vid_path)
-    input_size = os.path.getsize(vid_path) if os.path.exists(vid_path) else 0
+    
+    if is_url:
+        total_dur = 0.0  # We can't easily probe a stream
+        input_size = 0
+    else:
+        total_dur  = await _probe_duration(vid_path)
+        input_size = os.path.getsize(vid_path) if os.path.exists(vid_path) else 0
 
     vf = []
     if res != 'original':
@@ -371,32 +376,61 @@ async def nosub_encode(vid_filename: str, msg, job_id: str):
     output   = f"{base}_enc.mp4"
     out_path = os.path.join(Config.DOWNLOAD_DIR, output)
 
-    args = ['ffmpeg', '-hide_banner', '-progress', 'pipe:2', '-nostats']
-    
-    # HLS helpers
-    args += ['-protocol_whitelist', 'file,crypto,http,https,tcp,tls']
-    args += ['-allowed_extensions', 'ALL']
-    args += ['-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '10']
-    
-    # Optional headers for hosts that enforce UA/Referer (e.g., dmcdn.net)
-    host = urlparse(vid_path).hostname or ""
-    if is_url and ("dmcdn.net" in host or "dailymotion.com" in host):
-        args += ['-headers', 'User-Agent: Mozilla/5.0\r\nReferer: https://www.dailymotion.com\r\n']
-    
-    # Input + your existing filter/codec args
-    args += [
-        '-i', vid_path, *vf_args,
-        '-c:v', codec, '-preset', preset, '-crf', crf,
-        '-map', '0:v:0', '-map', '0:a:0?', '-c:a', 'copy',
-        '-y', out_path
-    ]
-    
-    proc = await asyncio.create_subprocess_exec(
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
+    if is_url:
+        # ---- NEW: Build yt-dlp + ffmpeg shell command ----
+        
+        # Build the yt-dlp part
+        host = urlparse(vid_path).hostname or ""
+        yt_dlp_cmd_parts = ['yt-dlp', '-o', '-'] # Output to stdout
+        
+        if "dmcdn.net" in host or "dailymotion.com" in host:
+            logger.info("Applying Dailymotion headers to yt-dlp")
+            yt_dlp_cmd_parts += ["--user-agent", "Mozilla/5.0", "--referer", "https://www.dailymotion.com"]
+        
+        yt_dlp_cmd_parts.append(vid_path)
+        
+        # Quote each part for shell safety
+        yt_dlp_cmd_str = " ".join([shlex.quote(p) for p in yt_dlp_cmd_parts])
+        
+        # Build the ffmpeg part
+        ffmpeg_cmd_parts = [
+            'ffmpeg', '-hide_banner', '-progress', 'pipe:2', '-nostats',
+            '-i', '-', # Read from stdin
+            *vf_args,
+            '-c:v', codec, '-preset', preset, '-crf', crf,
+            '-map', '0:v:0', '-map', '0:a:0?', '-c:a', 'copy',
+            '-y', out_path
+        ]
+        ffmpeg_cmd_str = " ".join([shlex.quote(p) for p in ffmpeg_cmd_parts])
 
+        # Create the full shell command
+        full_command = f"{yt_dlp_cmd_str} | {ffmpeg_cmd_str}"
+        
+        logger.info(f"Starting shell pipe for job {job_id}: yt-dlp | ffmpeg")
+        
+        proc = await asyncio.create_subprocess_shell(
+            full_command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE  # read_stderr will capture output from both
+        )
+        
+    else:
+        # ---- OLD: Original logic for local files ----
+        args = ['ffmpeg', '-hide_banner', '-progress', 'pipe:2', '-nostats']
+        args += [
+            '-i', vid_path, *vf_args,
+            '-c:v', codec, '-preset', preset, '-crf', crf,
+            '-map', '0:v:0', '-map', '0:a:0?', '-c:a', 'copy',
+            '-y', out_path
+        ]
+        
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+
+    # --- THIS PART IS THE SAME AS BEFORE (and uses my previous log-capturing fix) ---
     reader = asyncio.create_task(read_stderr(start, msg, proc, job_id, total_dur, input_size))
     waiter = asyncio.create_task(proc.wait())
     running_jobs[job_id] = {'proc': proc, 'tasks': [reader, waiter]}
@@ -407,11 +441,10 @@ async def nosub_encode(vid_filename: str, msg, job_id: str):
         parse_mode=ParseMode.HTML
     )
 
-    # This line stays the same
     await asyncio.wait([reader, waiter])
     
     # Get the captured lines from the reader task
-    full_stderr_lines = reader.result()
+    full_stderr_lines = reader.result() or [] # Ensure it's a list
     
     running_jobs.pop(job_id, None)
 
@@ -423,23 +456,19 @@ async def nosub_encode(vid_filename: str, msg, job_id: str):
         await asyncio.sleep(2)
         return output
     else:
-        # ---- THIS IS THE MODIFIED ERROR BLOCK ----
-        
         # Join the captured lines into a single string
         full_stderr_text = "".join(full_stderr_lines)
 
-        # The log file is already written by read_stderr, but we can add a final note
         try:
             os.makedirs("logs", exist_ok=True)
             with open(os.path.join("logs", f"ffmpeg_{job_id}.log"), "a", encoding="utf-8", errors="ignore") as _f:
-                _f.write(f"\n\n=== FFMPEG EXITED WITH CODE {proc.returncode} ===")
+                _f.write(f"\n\n=== PROCESS EXITED WITH CODE {proc.returncode} ===")
         except:
             pass
         
-        # Log the tail of the error
+        # Log the tail of the error (now from yt-dlp OR ffmpeg)
         logger.error("No-sub encode failed for job %s — tail: %s", job_id, full_stderr_text[-1500:])
         
-        # Send a preview of the error to the user (Telegram has a message length limit)
         err_preview = full_stderr_text[-1000:] 
         
         await msg.edit(
