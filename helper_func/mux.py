@@ -1,5 +1,6 @@
 import os, time, re, uuid, asyncio, math, logging
 from config import Config
+from urllib.parse import urlparse
 from helper_func.settings_manager import SettingsManager
 from pyrogram.enums import ParseMode
 
@@ -87,6 +88,7 @@ async def read_stderr(start: float, msg, proc, job_id: str, total_dur: float, in
     os.makedirs("logs", exist_ok=True)
     ff_log_path = os.path.join("logs", f"ffmpeg_{job_id}.log")
     ff_log = open(ff_log_path, "a", encoding="utf-8", errors="ignore")
+    _wrote = 0
     
     async for raw in readlines(proc.stderr):
         line = raw.decode(errors='ignore')
@@ -252,7 +254,7 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
     res    = cfg.get('resolution','1920:1080')
     fps    = cfg.get('fps','original')
     codec  = cfg.get('codec','libx264')
-    crf    = cfg.get('crf','27')
+    crf    = cfg.get('crf','25')
     preset = cfg.get('preset','faster')
 
     vid_path = os.path.join(Config.DOWNLOAD_DIR, vid_filename)
@@ -334,7 +336,7 @@ async def nosub_encode(vid_filename: str, msg, job_id: str):
     res    = cfg.get('resolution','1920:1080')
     fps    = cfg.get('fps','original')
     codec  = cfg.get('codec','libx264')
-    crf    = cfg.get('crf','27')
+    crf    = cfg.get('crf','25')
     preset = cfg.get('preset','faster')
 
     is_url  = vid_filename.startswith(("http://","https://"))
@@ -353,14 +355,26 @@ async def nosub_encode(vid_filename: str, msg, job_id: str):
     output   = f"{base}_enc.mp4"
     out_path = os.path.join(Config.DOWNLOAD_DIR, output)
 
-    proc = await asyncio.create_subprocess_exec(
-        'ffmpeg','-hide_banner',
-        '-progress','pipe:2','-nostats',
+    # Build ffmpeg args so we can inject headers for Dailymotion HLS
+    args = ['ffmpeg', '-hide_banner', '-progress', 'pipe:2', '-nostats']
+    
+    # If input is a URL and host is Dailymotion/CDN, add headers
+    is_url = vid_path.startswith(("http://", "https://"))
+    host = urlparse(vid_path).hostname or ""
+    if is_url and ("dmcdn.net" in host or "dailymotion.com" in host):
+        # Add UA + Referer; add Cookie here if your log shows 403 requiring it
+        args += ['-headers', 'User-Agent: Mozilla/5.0\r\nReferer: https://www.dailymotion.com\r\n']
+    
+    # Rest of your options (video filters, codec, mapping)
+    args += [
         '-i', vid_path, *vf_args,
         '-c:v', codec, '-preset', preset, '-crf', crf,
-        '-map','0:v:0','-map','0:a:0?',
-        '-c:a','copy',
-        '-y', out_path,
+        '-map', '0:v:0', '-map', '0:a:0?', '-c:a', 'copy',
+        '-y', out_path
+    ]
+    
+    proc = await asyncio.create_subprocess_exec(
+        *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE
     )
