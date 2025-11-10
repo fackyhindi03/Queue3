@@ -92,6 +92,9 @@ async def read_stderr(start: float, msg, proc, job_id: str, total_dur: float, in
         line = raw.decode(errors='ignore')
         try:
             ff_log.write(line)
+            _wrote += 1
+            if _wrote % 50 == 0:
+                ff_log.flush()
         except:
             pass
         prog = parse_progress(line)
@@ -168,6 +171,7 @@ async def read_stderr(start: float, msg, proc, job_id: str, total_dur: float, in
             pass
 
     try:
+        ff_log.flush()
         ff_log.close()
     except:
         pass
@@ -229,7 +233,7 @@ async def softmux_vid(vid_filename: str, sub_filename: str, msg):
                 _f.write(err.decode(errors='ignore'))
         except:
             pass
-        logger.error("Encode failed for job %s", job_id)
+        logger.error("Soft-mux failed for job %s — tail: %s", job_id, err.decode(errors="ignore")[-1200:])
         
         await msg.edit(
             "❌ Error during soft-mux!\n\n"
@@ -312,7 +316,7 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg):
                 _f.write(err.decode(errors='ignore'))
         except:
             pass
-        logger.error("Encode failed for job %s", job_id)
+        logger.error("Hard-mux failed for job %s — tail: %s", job_id, err.decode(errors="ignore")[-1200:])
         
         await msg.edit(
             "❌ Error during hard-mux!\n\n"
@@ -393,7 +397,7 @@ async def nosub_encode(vid_filename: str, msg):
                 _f.write(err.decode(errors='ignore'))
         except:
             pass
-        logger.error("Encode failed for job %s", job_id)
+        logger.error("No-sub encode failed for job %s — tail: %s", job_id, err.decode(errors="ignore")[-1200:])
         
         await msg.edit(
             "❌ Error during encode!\n\n"
