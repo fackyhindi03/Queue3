@@ -6,6 +6,8 @@ from helper_func.progress_bar import progress_bar
 from helper_func.dbhelper       import Database as Db
 from config import Config
 import uuid, time, os, asyncio, sys, sqlite3
+import logging
+logger = logging.getLogger("muxer")
 
 db = Db()
 
