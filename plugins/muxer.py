@@ -14,11 +14,11 @@ db = Db()
 _PENDING_RENAME = {} 
 
 async def _check_user(filt, client, message):
-    return str(message.from_user.id) in Config.ALLOWED_USERS
-check_user = filters.create(_check_user)
-
-
-async def _check_user(filt, client, message):
+    # First, check if message.from_user even exists.
+    if not message.from_user:
+        return False
+    
+    # If it exists, then check the ID.
     return str(message.from_user.id) in Config.ALLOWED_USERS
 check_user = filters.create(_check_user)
 
