@@ -391,7 +391,6 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
     vid_path = vid_filename if is_url else os.path.join(Config.DOWNLOAD_DIR, vid_filename)
     sub_path = os.path.join(Config.DOWNLOAD_DIR, sub_filename)
 
-    # Use our new smart probe for duration
     total_dur  = await _probe_duration(vid_path)
     input_size = 0 if is_url else (os.path.getsize(vid_path) if os.path.exists(vid_path) else 0)
 
@@ -412,10 +411,8 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
 
     if is_url:
         # ---- NEW: Build yt-dlp + ffmpeg shell command ----
-        
-        # Build the yt-dlp part
         host = urlparse(vid_path).hostname or ""
-        yt_dlp_cmd_parts = ['yt-dlp', '-o', '-'] # Output to stdout
+        yt_dlp_cmd_parts = ['yt-dlp', '-o', '-']
         
         if "dmcdn.net" in host or "dailymotion.com" in host:
             logger.info("Applying Dailymotion headers to yt-dlp")
@@ -424,7 +421,6 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
         yt_dlp_cmd_parts.append(vid_path)
         yt_dlp_cmd_str = " ".join([shlex.quote(p) for p in yt_dlp_cmd_parts])
         
-        # Build the ffmpeg part
         ffmpeg_cmd_parts = [
             'ffmpeg','-hide_banner',
             '-progress', 'pipe:2', '-nostats',
@@ -432,14 +428,14 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
             '-i', sub_path,    # Read subtitle from file
             '-vf', vf_arg,
             '-c:v', codec, '-preset', preset, '-crf', crf,
-            '-map','0:v:0','-map','0:a:0?', # Map video/audio from 1st input (pipe)
-            '-map', '1:s:0?',  # Map subtitles from 2nd input (file)
+            '-map','0:v:0','-map','0:a:0?',
+            '-map', '1:s:0?',
             '-c:a','copy',
+            '-c:s', 'mov_text',  # <---- THIS IS THE FIX
             '-y', out_path
         ]
         ffmpeg_cmd_str = " ".join([shlex.quote(p) for p in ffmpeg_cmd_parts])
 
-        # Create the full shell command
         full_command = f"{yt_dlp_cmd_str} | {ffmpeg_cmd_str}"
         logger.info(f"Starting shell pipe for job {job_id}: yt-dlp | ffmpeg (hardmux)")
         
@@ -455,12 +451,13 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
             'ffmpeg','-hide_banner',
             '-progress', 'pipe:2', '-nostats',
             '-i', vid_path,
-            '-i', sub_path, # Add subtitle file as second input
+            '-i', sub_path,
             '-vf', vf_arg,
             '-c:v', codec, '-preset', preset, '-crf', crf,
             '-map','0:v:0','-map','0:a:0?',
-            '-map', '1:s:0?', # Map subs from second input
+            '-map', '1:s:0?',
             '-c:a','copy',
+            '-c:s', 'mov_text',  # <---- THIS IS THE FIX
             '-y', out_path,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
@@ -508,7 +505,6 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
             parse_mode=ParseMode.HTML
         )
         return False
-
 # ============ NO-SUB (encode only) ============
 
 async def nosub_encode(vid_filename: str, msg, job_id: str):
