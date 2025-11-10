@@ -372,7 +372,13 @@ async def nosub_encode(vid_filename: str, msg, job_id: str):
         vf.append(f"fps={fps}")
     vf_args = ['-vf', ",".join(vf)] if vf else []
 
-    base     = os.path.splitext(vid_filename)[0]
+    if is_url:
+        # Create a simple, unique name for URL encodes
+        base = uuid.uuid4().hex[:8] 
+    else:
+        # Use the original filename for local files
+        base = os.path.splitext(vid_filename)[0]
+
     output   = f"{base}_enc.mp4"
     out_path = os.path.join(Config.DOWNLOAD_DIR, output)
 
