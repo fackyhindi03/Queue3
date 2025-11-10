@@ -178,11 +178,11 @@ async def queue_worker(client: Client):
             )
 
             if job.mode == 'soft':
-                out_file = await softmux_vid(job.vid, job.sub, msg=job.status_msg)
+                out_file = await softmux_vid(job.vid, job.sub, msg=job.status_msg, job_id=job.job_id)
             elif job.mode == 'hard':
-                out_file = await hardmux_vid(job.vid, job.sub, msg=job.status_msg)
+                out_file = await hardmux_vid(job.vid, job.sub, msg=job.status_msg, job_id=job.job_id)
             else:  # nosub
-                out_file = await nosub_encode(job.vid, msg=job.status_msg)
+                out_file = await nosub_encode(job.vid, msg=job.status_msg, job_id=job.job_id)
 
             if not out_file:
                 logp = os.path.join("logs", f"ffmpeg_{job.job_id}.log")
