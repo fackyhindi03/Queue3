@@ -187,12 +187,6 @@ async def read_stderr(start: float, msg, proc, job_id: str, total_dur: float, in
                 curr_size = int(prog['total_size'])
             except Exception:
                 pass
-        elif 'size' in prog and prog['size'].endswith('kB'):
-            try:
-                kb = float(prog['size'].replace('kB',''))
-                curr_size = int(kb * 1024)
-            except Exception:
-                pass
 
         if 'speed' in prog and prog['speed'] not in ('N/A', '0x'):
             # '1.23x'
