@@ -213,12 +213,13 @@ async def save_url(client, message):
     t0 = time.time()
 
     # --- THIS IS THE NEW LOGIC ---
-    # Check for HLS links OR specific streaming sites
+    # Check for HLS links OR the specific streaming *domain*
     is_hls = url.lower().endswith(".m3u8") or "m3u8" in url.lower()
-    is_streaming_site = "topchineseanime.xyz" in url or "topchineseanime.store" in url
+    # .store links are streams. .xyz links are webpages we can't parse.
+    is_streaming_domain = "topchineseanime.store" in url 
 
-    if is_hls or is_streaming_site:
-        logger.info(f"Captured streaming URL (HLS or protected site): {url}")
+    if is_hls or is_streaming_domain:
+        logger.info(f"Captured streaming URL (HLS or .store): {url}")
         
         # set the URL as the "video"
         db.put_video(chat_id, url, _pick_name_from_url(url))
@@ -233,7 +234,7 @@ async def save_url(client, message):
         return
     # --- END NEW LOGIC ---
 
-    # This part below is for *direct download* links only.
+    # This part below is for *direct download* links OR unparsable webpages like .xyz
     try:
         os.makedirs(Config.DOWNLOAD_DIR, exist_ok=True)
         job_id = uuid.uuid4().hex[:8]
@@ -254,7 +255,15 @@ async def save_url(client, message):
         await sent.edit_text(text)
 
     except Exception as e:
+        logger.warning("Failed to download from link (%s): %s", url, e, exc_info=True)
         try:
-            await sent.edit_text(f"❌ Failed to download from link.\n<code>{str(e)}</code>", parse_mode=ParseMode.HTML)
+            # If it failed (e.g. it was an HTML page), tell the user.
+            if "unsupported" in str(e).lower() or "text/html" in str(e).lower():
+                 await sent.edit_text(
+                    f"❌ This link is a webpage, not a direct video.\n\n"
+                    f"Please send a direct video link, an M3U8 link, or a link from `topchineseanime.store`."
+                )
+            else:
+                await sent.edit_text(f"❌ Failed to download from link.\n<code>{str(e)}</code>", parse_mode=ParseMode.HTML)
         except:
             pass
