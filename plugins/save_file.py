@@ -212,22 +212,28 @@ async def save_url(client, message):
     sent = await client.send_message(chat_id, "Fetching link…")
     t0 = time.time()
 
-    # HLS fast-path: don't download .m3u8 – store URL
-    if url.lower().endswith(".m3u8") or "m3u8" in url.lower():
-        # db.erase(chat_id) # Don't erase! We want to keep the subtitle if it exists
+    # --- THIS IS THE NEW LOGIC ---
+    # Check for HLS links OR specific streaming sites
+    is_hls = url.lower().endswith(".m3u8") or "m3u8" in url.lower()
+    is_streaming_site = "topchineseanime.xyz" in url or "topchineseanime.store" in url
+
+    if is_hls or is_streaming_site:
+        logger.info(f"Captured streaming URL (HLS or protected site): {url}")
         
-        # set the m3u8 URL as the "video"
+        # set the URL as the "video"
         db.put_video(chat_id, url, _pick_name_from_url(url))
         
         # Check if a sub is already waiting
         if db.check_sub(chat_id):
-            text = 'HLS link captured.\nChoose : [ /softmux , /hardmux , /nosub ]'
+            text = 'Streaming link captured.\nChoose : [ /softmux , /hardmux , /nosub ]'
         else:
-            text = 'HLS link captured. Send a subtitle file, or use /nosub to encode without subtitles.'
+            text = 'Streaming link captured. Send a subtitle file, or use /nosub to encode without subtitles.'
 
         await sent.edit_text(text)
         return
+    # --- END NEW LOGIC ---
 
+    # This part below is for *direct download* links only.
     try:
         os.makedirs(Config.DOWNLOAD_DIR, exist_ok=True)
         job_id = uuid.uuid4().hex[:8]
