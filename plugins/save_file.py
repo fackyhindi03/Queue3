@@ -101,6 +101,12 @@ async def _download_http_with_progress(url: str, dest_dir: str, status_msg, star
 
 @Client.on_message(filters.document & check_user & filters.private)
 async def save_doc(client, message):
+    if message.document.file_name and message.document.file_name.lower() == "cookies.txt":
+        logger.info("Received cookies.txt")
+        # Save to the root directory, overwriting any old one
+        await client.download_media(message, "cookies.txt") 
+        await message.reply_text("✅ `cookies.txt` saved successfully.")
+        return # Stop processing this file
     chat_id = message.from_user.id
     start_time = time.time()
     downloading = await client.send_message(chat_id, 'Downloading your File!')
