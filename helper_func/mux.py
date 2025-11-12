@@ -1,15 +1,12 @@
-import os, time, re, uuid, asyncio, math, logging, shlex, json, sys
+import os, time, re, uuid, asyncio, math, logging, shlex, json
 from config import Config
 from urllib.parse import urlparse
 from helper_func.settings_manager import SettingsManager
 from pyrogram.enums import ParseMode
 
-
 logger = logging.getLogger("mux.ffmpeg")
-
 # Track running jobs so /cancel can kill ffmpeg
 running_jobs: dict[str, dict] = {}
-
 
 # Parse both classic ffmpeg stats AND -progress key/value output
 progress_pattern = re.compile(
@@ -137,38 +134,47 @@ async def _probe_duration(vid_path: str) -> float:
 async def read_stderr(start: float, msg, proc, job_id: str, total_dur: float, input_size: int):
     """
     Tail ffmpeg stderr and render a rich progress card (Size / Speed / Elapsed / ETA / %)
-    This function is performance-sensitive and does NO disk I/O.
-    It returns all captured lines for logging *after* the job is complete.
+    with the Job ID visible.
     """
-    captured_lines: list[str] = [] # To store log for later
     last_edit = 0.0
     curr_time = 0.0   # seconds processed
     curr_size = 0     # bytes written (from total_size)
     speed_x   = 0.0
+    
+    # This list will capture all output
+    captured_lines: list[str] = []
 
+    os.makedirs("logs", exist_ok=True)
+    ff_log_path = os.path.join("logs", f"ffmpeg_{job_id}.log")
+    ff_log = open(ff_log_path, "a", encoding="utf-8", errors="ignore")
+    _wrote = 0
+    
     async for raw in readlines(proc.stderr):
         line = raw.decode(errors='ignore')
-        captured_lines.append(line + '\n') # Store all lines for error logging
+        
+        # Add every line to our capture list
+        captured_lines.append(line)
+        
+        try:
+            ff_log.write(line)
+            _wrote += 1
+            if _wrote % 50 == 0:
+                ff_log.flush()
+        except:
+            pass
         
         prog = parse_progress(line)
         if not prog:
             continue
 
-        # --- THIS IS THE FIX FOR THE FLICKER ---
-        # Only parse 'total_size', ignore the flickering 'size'
-        if 'total_size' in prog:
-            try:
-                curr_size = int(prog['total_size'])
-            except Exception:
-                pass
-        
-        # Pull other fields
+        # Pull fields
         if 'out_time_ms' in prog:
             try:
                 curr_time = int(prog['out_time_ms']) / 1_000_000.0
             except Exception:
                 pass
         elif 'time' in prog:
+            # fallback: 00:00:12.34 -> seconds
             t = prog['time']
             try:
                 h, m, s = t.split(':')
@@ -176,13 +182,26 @@ async def read_stderr(start: float, msg, proc, job_id: str, total_dur: float, in
             except Exception:
                 pass
 
+        if 'total_size' in prog:
+            try:
+                curr_size = int(prog['total_size'])
+            except Exception:
+                pass
+        elif 'size' in prog and prog['size'].endswith('kB'):
+            try:
+                kb = float(prog['size'].replace('kB',''))
+                curr_size = int(kb * 1024)
+            except Exception:
+                pass
+
         if 'speed' in prog and prog['speed'] not in ('N/A', '0x'):
+            # '1.23x'
             try:
                 speed_x = float(prog['speed'].rstrip('x'))
             except Exception:
                 speed_x = 0.0
 
-        # Throttle UI updates
+        # Throttle UI updates (~once every 2s)
         now = time.time()
         if now - last_edit < 5:
             continue
@@ -192,14 +211,18 @@ async def read_stderr(start: float, msg, proc, job_id: str, total_dur: float, in
         pct = 0.0
         eta_sec = 0
         if total_dur > 0:
-            pct = min(100.0, (curr_time / total_duration)) * 100.0 # Use total_duration
+            pct = min(100.0, (curr_time / total_dur) * 100.0)
             if speed_x > 0:
-                eta_sec = max(0, int((total_duration - curr_time) / speed_x)) # Use total_duration
+                eta_sec = max(0, int((total_dur - curr_time) / speed_x))
             elif curr_time > 0:
-                speed_factor = curr_time / (now - start)
+                # fallback ETA from avg processing rate
+                speed_factor = curr_time / (now - start)  # (sec encoded) per wall sec
                 if speed_factor > 0:
-                    eta_sec = max(0, int((total_duration - curr_time) / speed_factor)) # Use total_duration
-        
+                    eta_sec = max(0, int((total_dur - curr_time) / speed_factor))
+
+        elapsed = now - start
+        avg_bps = curr_size / elapsed if elapsed > 0 else 0.0
+
         card = (
             f"📽️ <b>Encoding</b> [<code>{job_id}</code>]\n\n"
             f"📊 <b>Size:</b> {_humanbytes(curr_size)}\n"
@@ -212,8 +235,14 @@ async def read_stderr(start: float, msg, proc, job_id: str, total_dur: float, in
             await msg.edit(card, parse_mode=ParseMode.HTML)
         except:
             pass
-    
-    # Return all captured output for logging AFTER the job is done
+
+    try:
+        ff_log.flush()
+        ff_log.close()
+    except:
+        pass
+
+    # Return the captured output
     return captured_lines
 # ============ SOFT-MUX ============
 
@@ -327,18 +356,14 @@ async def softmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
         return output
     else:
         full_stderr_text = "".join(full_stderr_lines)
-        
-        # --- WRITE LOG FILE ONCE ---
+
         try:
             os.makedirs("logs", exist_ok=True)
-            log_path = os.path.join("logs", f"ffmpeg_{job_id}.log")
-            with open(log_path, "w", encoding="utf-8", errors="ignore") as _f:
-                _f.write(full_stderr_text) # Write the entire captured log
+            with open(os.path.join("logs", f"ffmpeg_{job_id}.log"), "a", encoding="utf-8", errors="ignore") as _f:
                 _f.write(f"\n\n=== PROCESS EXITED WITH CODE {proc.returncode} ===")
-        except Exception as e:
-            logger.warning("Failed to write error log: %s", e)
-        # --- END LOG WRITE ---
-
+        except:
+            pass
+        
         logger.error("Soft-mux failed for job %s — tail: %s", job_id, full_stderr_text[-1500:])
         err_preview = full_stderr_text[-1000:]
         
@@ -387,7 +412,7 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
     if is_url:
         # ---- NEW: Build yt-dlp + ffmpeg shell command ----
         host = urlparse(vid_path).hostname or ""
-        yt_dlp_cmd_parts = ['yt-dlp', '-o', '-', '--no-progress']
+        yt_dlp_cmd_parts = ['yt-dlp', '-o', '-']
         
         if "dmcdn.net" in host or "dailymotion.com" in host:
             logger.info("Applying Dailymotion headers to yt-dlp")
@@ -527,7 +552,7 @@ async def nosub_encode(vid_filename: str, msg, job_id: str):
         
         # Build the yt-dlp part
         host = urlparse(vid_path).hostname or ""
-        yt_dlp_cmd_parts = ['yt-dlp', '-o', '-', '--no-progress'] # Output to stdout
+        yt_dlp_cmd_parts = ['yt-dlp', '-o', '-'] # Output to stdout
         
         if "dmcdn.net" in host or "dailymotion.com" in host:
             logger.info("Applying Dailymotion headers to yt-dlp")
