@@ -384,7 +384,7 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
     if is_url:
         # ---- NEW: Build yt-dlp + ffmpeg shell command ----
         host = urlparse(vid_path).hostname or ""
-        yt_dlp_cmd_parts = ['yt-dlp', '-o', '-']
+        yt_dlp_cmd_parts = ['yt-dlp', '-o', '-', '--no-progress']
         
         if "dmcdn.net" in host or "dailymotion.com" in host:
             logger.info("Applying Dailymotion headers to yt-dlp")
@@ -524,7 +524,7 @@ async def nosub_encode(vid_filename: str, msg, job_id: str):
         
         # Build the yt-dlp part
         host = urlparse(vid_path).hostname or ""
-        yt_dlp_cmd_parts = ['yt-dlp', '-o', '-'] # Output to stdout
+        yt_dlp_cmd_parts = ['yt-dlp', '-o', '-', '--no-progress'] # Output to stdout
         
         if "dmcdn.net" in host or "dailymotion.com" in host:
             logger.info("Applying Dailymotion headers to yt-dlp")
