@@ -91,15 +91,22 @@ async def _probe_duration(vid_path: str) -> float:
         logger.info("Probing duration for URL with yt-dlp: %s", vid_path)
         
         host = urlparse(vid_path).hostname or ""
+        referer_url = f"https://{host}/" # Guess root domain as referer
+
+        if "dmcdn.net" in host or "dailymotion.com" in host:
+            logger.info("Applying Dailymotion-specific referer")
+            referer_url = "https://www.dailymotion.com"
+        elif "topchineseanime.store" in host:
+            logger.info("Applying TopChineseAnime referer")
+            referer_url = "https://topchineseanime.xyz/"
+
         yt_dlp_cmd_parts = [
-            'yt-dlp',
+            YT_DLP_PATH, # Use variable
             '--dump-json',
             '--no-warnings',
+            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            '--referer', referer_url
         ]
-        
-        if "dmcdn.net" in host or "dailymotion.com" in host:
-            logger.info("Applying Dailymotion headers to yt-dlp probe")
-            yt_dlp_cmd_parts += ["--user-agent", "Mozilla/5.0", "--referer", "https.www.dailymotion.com"]
         
         yt_dlp_cmd_parts.append(vid_path)
         
@@ -274,11 +281,20 @@ async def softmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
         temp_vid_to_delete = temp_vid_file # Mark for deletion
         
         host = urlparse(vid_path).hostname or ""
-        yt_dlp_cmd_parts = ['yt-dlp']
-        
+        referer_url = f"https://{host}/" # Guess root domain as referer
+
         if "dmcdn.net" in host or "dailymotion.com" in host:
-            logger.info("Applying Dailymotion headers to yt-dlp download")
-            yt_dlp_cmd_parts += ["--user-agent", "Mozilla/5.0", "--referer", "https://www.dailymotion.com"]
+            logger.info("Applying Dailymotion-specific referer")
+            referer_url = "https://www.dailymotion.com"
+        elif "topchineseanime.store" in host:
+            logger.info("Applying TopChineseAnime referer")
+            referer_url = "https://topchineseanime.xyz/"
+
+        yt_dlp_cmd_parts = [
+            YT_DLP_PATH, # Use variable
+            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            '--referer', referer_url
+        ]
         
         # Add output format and URL
         yt_dlp_cmd_parts += ['-o', temp_vid_path, vid_path]
@@ -412,11 +428,20 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
     if is_url:
         # ---- NEW: Build yt-dlp + ffmpeg shell command ----
         host = urlparse(vid_path).hostname or ""
-        yt_dlp_cmd_parts = ['yt-dlp', '-o', '-']
-        
+        referer_url = f"https://{host}/" # Guess root domain as referer
+
         if "dmcdn.net" in host or "dailymotion.com" in host:
-            logger.info("Applying Dailymotion headers to yt-dlp")
-            yt_dlp_cmd_parts += ["--user-agent", "Mozilla/5.0", "--referer", "https::/www.dailymotion.com"]
+            logger.info("Applying Dailymotion-specific referer")
+            referer_url = "https://www.dailymotion.com"
+        elif "topchineseanime.store" in host:
+            logger.info("Applying TopChineseAnime referer")
+            referer_url = "https://topchineseanime.xyz/"
+
+        yt_dlp_cmd_parts = [
+            YT_DLP_PATH, '-o', '-', '--no-progress',
+            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            '--referer', referer_url
+        ]
         
         yt_dlp_cmd_parts.append(vid_path)
         yt_dlp_cmd_str = " ".join([shlex.quote(p) for p in yt_dlp_cmd_parts])
@@ -552,11 +577,20 @@ async def nosub_encode(vid_filename: str, msg, job_id: str):
         
         # Build the yt-dlp part
         host = urlparse(vid_path).hostname or ""
-        yt_dlp_cmd_parts = ['yt-dlp', '-o', '-'] # Output to stdout
-        
+        referer_url = f"https://{host}/" # Guess root domain as referer
+
         if "dmcdn.net" in host or "dailymotion.com" in host:
-            logger.info("Applying Dailymotion headers to yt-dlp")
-            yt_dlp_cmd_parts += ["--user-agent", "Mozilla/5.0", "--referer", "https://www.dailymotion.com"]
+            logger.info("Applying Dailymotion-specific referer")
+            referer_url = "https://www.dailymotion.com"
+        elif "topchineseanime.store" in host:
+            logger.info("Applying TopChineseAnime referer")
+            referer_url = "https://topchineseanime.xyz/"
+
+        yt_dlp_cmd_parts = [
+            YT_DLP_PATH, '-o', '-', '--no-progress',
+            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            '--referer', referer_url
+        ]
         
         yt_dlp_cmd_parts.append(vid_path)
         
