@@ -598,7 +598,7 @@ async def nosub_encode(vid_filename: str, msg, job_id: str):
         
         # Build the yt-dlp part
         host = urlparse(vid_path).hostname or ""
-        referer_url = f"httpsS://{host}/" # Guess root domain as referer
+        referer_url = f"https://{host}/" # Guess root domain as referer
 
         if "dmcdn.net" in host or "dailymotion.com" in host:
             logger.info("Applying Dailymotion-specific referer")
