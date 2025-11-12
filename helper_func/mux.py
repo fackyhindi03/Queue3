@@ -103,7 +103,7 @@ async def _probe_duration(vid_path: str) -> float:
             logger.info("Applying Dailymotion-specific referer")
             referer_url = "https://www.dailymotion.com"
             origin_url = "https://www.dailymotion.com"
-        elif "topchineseanime.store" in host:
+        elif "topchineseanime.store" in host or "topchineseanime.xyz" in host:
             logger.info("Applying TopChineseAnime (same-origin) referer")
             referer_url = "https://topchineseanime.store/"
             origin_url = "https://topchineseanime.store"
@@ -302,7 +302,7 @@ async def softmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
             logger.info("Applying Dailymotion-specific referer")
             referer_url = "https://www.dailymotion.com"
             origin_url = "https://www.dailymotion.com"
-        elif "topchineseanime.store" in host:
+        elif "topchineseanime.store" in host or "topchineseanime.xyz" in host:
             logger.info("Applying TopChineseAnime (same-origin) referer")
             referer_url = "https://topchineseanime.store/"
             origin_url = "https://topchineseanime.store"
@@ -458,7 +458,7 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
             logger.info("Applying Dailymotion-specific referer")
             referer_url = "https://www.dailymotion.com"
             origin_url = "https://www.dailymotion.com"
-        elif "topchineseanime.store" in host:
+        elif "topchineseanime.store" in host or "topchineseanime.xyz" in host:
             logger.info("Applying TopChineseAnime (same-origin) referer")
             referer_url = "https://topchineseanime.store/"
             origin_url = "https://topchineseanime.store"
@@ -617,7 +617,7 @@ async def nosub_encode(vid_filename: str, msg, job_id: str):
             logger.info("Applying Dailymotion-specific referer")
             referer_url = "https://www.dailymotion.com"
             origin_url = "https://www.dailymotion.com"
-        elif "topchineseanime.store" in host:
+        elif "topchineseanime.store" in host or "topchineseanime.xyz" in host:
             logger.info("Applying TopChineseAnime (same-origin) referer")
             referer_url = "https://topchineseanime.store/"
             origin_url = "https://topchineseanime.store"
