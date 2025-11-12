@@ -111,7 +111,6 @@ async def _probe_duration(vid_path: str) -> float:
         elif "topchineseanime.store" in host:
             logger.info("Applying TopChineseAnime referer and cookies")
             referer_url = "https://topchineseanime.xyz/"
-            yt_dlp_cmd_parts += ['--cookies-from-domain', 'topchineseanime.xyz'] # <--- ADDED
         
         yt_dlp_cmd_parts += ['--referer', referer_url]
         yt_dlp_cmd_parts.append(vid_path)
@@ -300,7 +299,7 @@ async def softmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
         elif "topchineseanime.store" in host:
             logger.info("Applying TopChineseAnime referer and cookies")
             referer_url = "https://topchineseanime.xyz/"
-            yt_dlp_cmd_parts += ['--cookies-from-domain', 'topchineseanime.xyz'] # <--- ADDED
+            
         
         yt_dlp_cmd_parts += ['--referer', referer_url]
         # Add output format and URL
@@ -448,7 +447,6 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
         elif "topchineseanime.store" in host:
             logger.info("Applying TopChineseAnime referer and cookies")
             referer_url = "https://topchineseanime.xyz/"
-            yt_dlp_cmd_parts += ['--cookies-from-domain', 'topchineseanime.xyz'] # <--- ADDED
         
         yt_dlp_cmd_parts += ['--referer', referer_url]
         yt_dlp_cmd_parts.append(vid_path)
@@ -599,7 +597,6 @@ async def nosub_encode(vid_filename: str, msg, job_id: str):
         elif "topchineseanime.store" in host:
             logger.info("Applying TopChineseAnime referer and cookies")
             referer_url = "https://topchineseanime.xyz/"
-            yt_dlp_cmd_parts += ['--cookies-from-domain', 'topchineseanime.xyz'] # <--- ADDED
         
         yt_dlp_cmd_parts += ['--referer', referer_url]
         yt_dlp_cmd_parts.append(vid_path)
