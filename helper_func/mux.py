@@ -7,13 +7,6 @@ from pyrogram.enums import ParseMode
 
 logger = logging.getLogger("mux.ffmpeg")
 
-# --- ADD THIS BLOCK ---
-# Get the directory of the current python executable (e.g., /home/giveaway/venv/bin)
-VENV_BIN_DIR = os.path.dirname(sys.executable)
-# Define the full path to the yt-dlp executable
-YT_DLP_PATH = os.path.join(VENV_BIN_DIR, 'yt-dlp')
-# --- END BLOCK ---
-
 # Track running jobs so /cancel can kill ffmpeg
 running_jobs: dict[str, dict] = {}
 
