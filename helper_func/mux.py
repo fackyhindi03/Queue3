@@ -11,6 +11,7 @@ VENV_BIN_DIR = os.path.dirname(sys.executable)
 # Define the full path to the yt-dlp executable
 YT_DLP_PATH = os.path.join(VENV_BIN_DIR, 'yt-dlp')
 # Track running jobs so /cancel can kill ffmpeg
+COOKIE_FILE_PATH = "cookies.txt"
 running_jobs: dict[str, dict] = {}
 
 # Parse both classic ffmpeg stats AND -progress key/value output
@@ -121,7 +122,9 @@ async def _probe_duration(vid_path: str) -> float:
             '--add-header', 'sec-fetch-mode: cors',
             '--add-header', 'sec-fetch-site: same-origin'
         ]
-        
+        if os.path.exists(COOKIE_FILE_PATH):
+            logger.info("Using cookies.txt for probe")
+            yt_dlp_cmd_parts += ['--cookie', COOKIE_FILE_PATH]
         yt_dlp_cmd_parts.append(vid_path)
         
         proc = await asyncio.create_subprocess_exec(
@@ -318,7 +321,9 @@ async def softmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
             '--add-header', 'sec-fetch-mode: cors',
             '--add-header', 'sec-fetch-site: same-origin'
         ]
-        
+        if os.path.exists(COOKIE_FILE_PATH):
+            logger.info("Using cookies.txt for softmux download")
+            yt_dlp_cmd_parts += ['--cookie', COOKIE_FILE_PATH]
         # Add output format and URL
         yt_dlp_cmd_parts += ['-o', temp_vid_path, vid_path]
         
@@ -474,7 +479,9 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
             '--add-header', 'sec-fetch-mode: cors',
             '--add-header', 'sec-fetch-site: same-origin'
         ]
-        
+        if os.path.exists(COOKIE_FILE_PATH):
+            logger.info("Using cookies.txt for hardmux stream")
+            yt_dlp_cmd_parts += ['--cookie', COOKIE_FILE_PATH]
         yt_dlp_cmd_parts.append(vid_path)
         
         yt_dlp_cmd_str = " ".join([shlex.quote(p) for p in yt_dlp_cmd_parts])
@@ -633,7 +640,9 @@ async def nosub_encode(vid_filename: str, msg, job_id: str):
             '--add-header', 'sec-fetch-mode: cors',
             '--add-header', 'sec-fetch-site: same-origin'
         ]
-        
+        if os.path.exists(COOKIE_FILE_PATH):
+            logger.info("Using cookies.txt for nosub stream")
+            yt_dlp_cmd_parts += ['--cookie', COOKIE_FILE_PATH]
         yt_dlp_cmd_parts.append(vid_path)
         
         # Quote each part for shell safety
