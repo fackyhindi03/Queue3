@@ -272,6 +272,7 @@ async def queue_worker(client: Client):
                     document=dst,
                     caption=job.final_name,
                     file_name=job.final_name,
+                    force_document=True
                     progress=progress_bar,
                     progress_args=('Uploading…', job.status_msg, t0, job.job_id)
                 )
