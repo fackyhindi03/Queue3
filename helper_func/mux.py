@@ -1,17 +1,11 @@
-import os, time, re, uuid, asyncio, math, logging, shlex, json, sys
+import os, time, re, uuid, asyncio, math, logging, shlex, json
 from config import Config
 from urllib.parse import urlparse
 from helper_func.settings_manager import SettingsManager
 from pyrogram.enums import ParseMode
 
 logger = logging.getLogger("mux.ffmpeg")
-
-# Get the directory of the current python executable (e.g., /home/giveaway/venv/bin)
-VENV_BIN_DIR = os.path.dirname(sys.executable)
-# Define the full path to the yt-dlp executable
-YT_DLP_PATH = os.path.join(VENV_BIN_DIR, 'yt-dlp')
 # Track running jobs so /cancel can kill ffmpeg
-COOKIE_FILE_PATH = "cookies.txt"
 running_jobs: dict[str, dict] = {}
 
 # Parse both classic ffmpeg stats AND -progress key/value output
@@ -97,34 +91,16 @@ async def _probe_duration(vid_path: str) -> float:
         logger.info("Probing duration for URL with yt-dlp: %s", vid_path)
         
         host = urlparse(vid_path).hostname or ""
-        referer_url = f"https{'' if 'localhost' in host else 's'}://{host}/"
-        origin_url = referer_url.rstrip('/')
-
-        if "dmcdn.net" in host or "dailymotion.com" in host:
-            logger.info("Applying Dailymotion-specific referer")
-            referer_url = "https://www.dailymotion.com"
-            origin_url = "https://www.dailymotion.com"
-        elif "topchineseanime.store" in host or "topchineseanime.xyz" in host:
-            logger.info("Applying TopChineseAnime (same-origin) referer")
-            referer_url = "https://topchineseanime.store/"
-            origin_url = "https://topchineseanime.store"
-
         yt_dlp_cmd_parts = [
-            YT_DLP_PATH,
+            'yt-dlp',
             '--dump-json',
             '--no-warnings',
-            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
-            '--referer', referer_url,
-            '--add-header', 'Accept: */*',
-            '--add-header', 'Accept-Language: en-US,en;q=0.9',
-            '--add-header', f'Origin: {origin_url}',
-            '--add-header', 'sec-fetch-dest: empty',
-            '--add-header', 'sec-fetch-mode: cors',
-            '--add-header', 'sec-fetch-site: same-origin'
         ]
-        if os.path.exists(COOKIE_FILE_PATH):
-            logger.info("Using cookies.txt for probe")
-            yt_dlp_cmd_parts += ['--cookie', COOKIE_FILE_PATH]
+        
+        if "dmcdn.net" in host or "dailymotion.com" in host:
+            logger.info("Applying Dailymotion headers to yt-dlp probe")
+            yt_dlp_cmd_parts += ["--user-agent", "Mozilla/5.0", "--referer", "https.www.dailymotion.com"]
+        
         yt_dlp_cmd_parts.append(vid_path)
         
         proc = await asyncio.create_subprocess_exec(
@@ -298,32 +274,12 @@ async def softmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
         temp_vid_to_delete = temp_vid_file # Mark for deletion
         
         host = urlparse(vid_path).hostname or ""
-        referer_url = f"https{'' if 'localhost' in host else 's'}://{host}/"
-        origin_url = referer_url.rstrip('/')
-
+        yt_dlp_cmd_parts = ['yt-dlp']
+        
         if "dmcdn.net" in host or "dailymotion.com" in host:
-            logger.info("Applying Dailymotion-specific referer")
-            referer_url = "https://www.dailymotion.com"
-            origin_url = "https://www.dailymotion.com"
-        elif "topchineseanime.store" in host or "topchineseanime.xyz" in host:
-            logger.info("Applying TopChineseAnime (same-origin) referer")
-            referer_url = "https://topchineseanime.store/"
-            origin_url = "https://topchineseanime.store"
-
-        yt_dlp_cmd_parts = [
-            YT_DLP_PATH,
-            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
-            '--referer', referer_url,
-            '--add-header', 'Accept: */*',
-            '--add-header', 'Accept-Language: en-US,en;q=0.9',
-            '--add-header', f'Origin: {origin_url}',
-            '--add-header', 'sec-fetch-dest: empty',
-            '--add-header', 'sec-fetch-mode: cors',
-            '--add-header', 'sec-fetch-site: same-origin'
-        ]
-        if os.path.exists(COOKIE_FILE_PATH):
-            logger.info("Using cookies.txt for softmux download")
-            yt_dlp_cmd_parts += ['--cookie', COOKIE_FILE_PATH]
+            logger.info("Applying Dailymotion headers to yt-dlp download")
+            yt_dlp_cmd_parts += ["--user-agent", "Mozilla/5.0", "--referer", "https://www.dailymotion.com"]
+        
         # Add output format and URL
         yt_dlp_cmd_parts += ['-o', temp_vid_path, vid_path]
         
@@ -456,34 +412,13 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
     if is_url:
         # ---- NEW: Build yt-dlp + ffmpeg shell command ----
         host = urlparse(vid_path).hostname or ""
-        referer_url = f"https{'' if 'localhost' in host else 's'}://{host}/"
-        origin_url = referer_url.rstrip('/')
-
-        if "dmcdn.net" in host or "dailymotion.com" in host:
-            logger.info("Applying Dailymotion-specific referer")
-            referer_url = "https://www.dailymotion.com"
-            origin_url = "https://www.dailymotion.com"
-        elif "topchineseanime.store" in host or "topchineseanime.xyz" in host:
-            logger.info("Applying TopChineseAnime (same-origin) referer")
-            referer_url = "https://topchineseanime.store/"
-            origin_url = "https://topchineseanime.store"
-
-        yt_dlp_cmd_parts = [
-            YT_DLP_PATH, '-o', '-', '--no-progress',
-            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
-            '--referer', referer_url,
-            '--add-header', 'Accept: */*',
-            '--add-header', 'Accept-Language: en-US,en;q=0.9',
-            '--add-header', f'Origin: {origin_url}',
-            '--add-header', 'sec-fetch-dest: empty',
-            '--add-header', 'sec-fetch-mode: cors',
-            '--add-header', 'sec-fetch-site: same-origin'
-        ]
-        if os.path.exists(COOKIE_FILE_PATH):
-            logger.info("Using cookies.txt for hardmux stream")
-            yt_dlp_cmd_parts += ['--cookie', COOKIE_FILE_PATH]
-        yt_dlp_cmd_parts.append(vid_path)
+        yt_dlp_cmd_parts = ['yt-dlp', '-o', '-']
         
+        if "dmcdn.net" in host or "dailymotion.com" in host:
+            logger.info("Applying Dailymotion headers to yt-dlp")
+            yt_dlp_cmd_parts += ["--user-agent", "Mozilla/5.0", "--referer", "https::/www.dailymotion.com"]
+        
+        yt_dlp_cmd_parts.append(vid_path)
         yt_dlp_cmd_str = " ".join([shlex.quote(p) for p in yt_dlp_cmd_parts])
         
         ffmpeg_cmd_parts = [
@@ -494,9 +429,7 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
             '-vf', vf_arg,
             '-c:v', codec, '-preset', preset, '-crf', crf,
             '-map','0:v:0','-map','0:a:0?',
-            '-map', '1:s:0?',
             '-c:a','copy',
-            '-c:s', 'mov_text',  # <---- THIS IS THE FIX
             '-y', out_path
         ]
         ffmpeg_cmd_str = " ".join([shlex.quote(p) for p in ffmpeg_cmd_parts])
@@ -520,9 +453,7 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
             '-vf', vf_arg,
             '-c:v', codec, '-preset', preset, '-crf', crf,
             '-map','0:v:0','-map','0:a:0?',
-            '-map', '1:s:0?',
             '-c:a','copy',
-            '-c:s', 'mov_text',  # <---- THIS IS THE FIX
             '-y', out_path,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
@@ -617,32 +548,12 @@ async def nosub_encode(vid_filename: str, msg, job_id: str):
         
         # Build the yt-dlp part
         host = urlparse(vid_path).hostname or ""
-        referer_url = f"https{'' if 'localhost' in host else 's'}://{host}/"
-        origin_url = referer_url.rstrip('/')
-
+        yt_dlp_cmd_parts = ['yt-dlp', '-o', '-'] # Output to stdout
+        
         if "dmcdn.net" in host or "dailymotion.com" in host:
-            logger.info("Applying Dailymotion-specific referer")
-            referer_url = "https://www.dailymotion.com"
-            origin_url = "https://www.dailymotion.com"
-        elif "topchineseanime.store" in host or "topchineseanime.xyz" in host:
-            logger.info("Applying TopChineseAnime (same-origin) referer")
-            referer_url = "https://topchineseanime.store/"
-            origin_url = "https://topchineseanime.store"
-
-        yt_dlp_cmd_parts = [
-            YT_DLP_PATH, '-o', '-', '--no-progress',
-            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
-            '--referer', referer_url,
-            '--add-header', 'Accept: */*',
-            '--add-header', 'Accept-Language: en-US,en;q=0.9',
-            '--add-header', f'Origin: {origin_url}',
-            '--add-header', 'sec-fetch-dest: empty',
-            '--add-header', 'sec-fetch-mode: cors',
-            '--add-header', 'sec-fetch-site: same-origin'
-        ]
-        if os.path.exists(COOKIE_FILE_PATH):
-            logger.info("Using cookies.txt for nosub stream")
-            yt_dlp_cmd_parts += ['--cookie', COOKIE_FILE_PATH]
+            logger.info("Applying Dailymotion headers to yt-dlp")
+            yt_dlp_cmd_parts += ["--user-agent", "Mozilla/5.0", "--referer", "https://www.dailymotion.com"]
+        
         yt_dlp_cmd_parts.append(vid_path)
         
         # Quote each part for shell safety
