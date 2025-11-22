@@ -2,7 +2,7 @@ from chat import Chat
 from pyrogram import Client, filters
 from pyrogram.enums import ParseMode
 from helper_func.queue import Job, job_queue
-from helper_func.mux   import softmux_vid, hardmux_vid, nosub_encode, running_jobs
+from helper_func.mux import softmux_vid, hardmux_vid, nosub_encode, running_jobs, generate_thumbnail
 from helper_func.progress_bar import progress_bar
 from helper_func.dbhelper       import Database as Db
 from config import Config
@@ -216,6 +216,7 @@ async def cancel_job(client, message):
 # --------------------- WORKER ---------------------
 
 async def queue_worker(client: Client):
+    logger.info("Queue worker started.")
     while True:
         job = await job_queue.get()
 
@@ -234,8 +235,8 @@ async def queue_worker(client: Client):
                 out_file = await nosub_encode(job.vid, msg=job.status_msg, job_id=job.job_id)
 
             if not out_file:
+                # Only complain if the job wasn't cancelled cleanly
                 logp = os.path.join("logs", f"ffmpeg_{job.job_id}.log")
-                sent = False
                 if os.path.exists(logp) and os.path.getsize(logp) > 0:
                     try:
                         await client.send_document(
@@ -244,18 +245,8 @@ async def queue_worker(client: Client):
                             caption=f"FFmpeg log for job {job.job_id}",
                             file_name=os.path.basename(logp)
                         )
-                        sent = True
                     except:
-                        sent = False
-
-                await job.status_msg.edit(
-                    "❌ Job <code>{}</code> failed. {}{}".format(
-                        job.job_id,
-                        "Log sent above. " if sent else "",
-                        f"Check <code>{logp}</code>" if not sent else ""
-                    ),
-                    parse_mode=ParseMode.HTML
-                )
+                        pass
             else:
                 # rename to desired final name
                 src = os.path.join(Config.DOWNLOAD_DIR, out_file)
@@ -265,6 +256,10 @@ async def queue_worker(client: Client):
                 except Exception:
                     dst = src
 
+                # --- Generate Thumbnail ---
+                thumb_path = await generate_thumbnail(dst)
+                # --------------------------
+
                 # upload with progress UI
                 t0 = time.time()
                 await client.send_document(
@@ -272,10 +267,15 @@ async def queue_worker(client: Client):
                     document=dst,
                     caption=job.final_name,
                     file_name=job.final_name,
+                    thumb=thumb_path,
                     force_document=True,
                     progress=progress_bar,
                     progress_args=('Uploading…', job.status_msg, t0, job.job_id)
                 )
+                
+                # --- Clean up Thumbnail ---
+                if thumb_path and os.path.exists(thumb_path):
+                    os.remove(thumb_path)
 
                 await job.status_msg.edit(
                     f"✅ Job <code>{job.job_id}</code> done.",
@@ -290,6 +290,12 @@ async def queue_worker(client: Client):
                     except:
                         pass
 
+        except asyncio.CancelledError:
+            logger.warning(f"Job {job.job_id} was cancelled.")
+            try:
+                await job.status_msg.edit(f"🛑 Job <code>{job.job_id}</code> cancelled.", parse_mode=ParseMode.HTML)
+            except:
+                pass
         except Exception:
             logger.exception("Unhandled error in queue_worker for job %s", job.job_id)
             try:
