@@ -427,6 +427,7 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
             '-i', '-',         # Read video from stdin (yt-dlp)
             '-i', sub_path,    # Read subtitle from file
             '-vf', vf_arg,
+            '-pix_fmt', 'yuv420p',
             '-c:v', codec, '-preset', preset, '-crf', crf,
             '-map','0:v:0','-map','0:a:0?',
             '-c:a','copy',
@@ -564,6 +565,7 @@ async def nosub_encode(vid_filename: str, msg, job_id: str):
             'ffmpeg', '-hide_banner', '-progress', 'pipe:2', '-nostats',
             '-i', '-', # Read from stdin
             *vf_args,
+            '-pix_fmt', 'yuv420p',
             '-c:v', codec, '-preset', preset, '-crf', crf,
             '-map', '0:v:0', '-map', '0:a:0?', '-c:a', 'copy',
             '-y', out_path
@@ -644,3 +646,36 @@ async def nosub_encode(vid_filename: str, msg, job_id: str):
             parse_mode=ParseMode.HTML
         )
         return False
+
+async def generate_thumbnail(vid_path):
+    """
+    Generates a JPG thumbnail from the video at the 5-second mark.
+    Returns the path to the thumbnail or None if failed.
+    """
+    thumb_path = f"{vid_path}.jpg"
+    
+    try:
+        # ffmpeg command to extract 1 frame at 00:00:05
+        cmd = [
+            'ffmpeg', '-hide_banner', '-loglevel', 'error',
+            '-ss', '00:00:05',  # Seek to 5 seconds
+            '-i', vid_path,
+            '-vframes', '1',    # Capture 1 frame
+            '-q:v', '2',        # High quality JPG
+            '-y',               # Overwrite if exists
+            thumb_path
+        ]
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        await proc.communicate()
+
+        if os.path.exists(thumb_path):
+            return thumb_path
+        return None
+    except Exception as e:
+        logger.error(f"Failed to generate thumbnail: {e}")
+        return None
