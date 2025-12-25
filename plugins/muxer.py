@@ -222,8 +222,7 @@ async def queue_worker(client: Client):
 
         try:
             await job.status_msg.edit(
-                f"▶️ Starting <code>{job.job_id}</code> ({job.mode})…  "
-                f"Use <code>/cancel {job.job_id}</code> to abort.",
+                f"▶️ Starting <code>{job.job_id}</code> ({job.mode})…  Use <code>/cancel {job.job_id}</code> to abort.",
                 parse_mode=ParseMode.HTML
             )
 
@@ -231,36 +230,24 @@ async def queue_worker(client: Client):
                 out_file = await softmux_vid(job.vid, job.sub, msg=job.status_msg, job_id=job.job_id)
             elif job.mode == 'hard':
                 out_file = await hardmux_vid(job.vid, job.sub, msg=job.status_msg, job_id=job.job_id)
-            else:  # nosub
+            else:
                 out_file = await nosub_encode(job.vid, msg=job.status_msg, job_id=job.job_id)
 
             if not out_file:
-                # Only complain if the job wasn't cancelled cleanly
+                # Send log if it exists
                 logp = os.path.join("logs", f"ffmpeg_{job.job_id}.log")
                 if os.path.exists(logp) and os.path.getsize(logp) > 0:
-                    try:
-                        await client.send_document(
-                            job.chat_id,
-                            document=logp,
-                            caption=f"FFmpeg log for job {job.job_id}",
-                            file_name=os.path.basename(logp)
-                        )
-                    except:
-                        pass
+                    try: await client.send_document(job.chat_id, document=logp, caption=f"FFmpeg log {job.job_id}", file_name=os.path.basename(logp))
+                    except: pass
             else:
-                # rename to desired final name
                 src = os.path.join(Config.DOWNLOAD_DIR, out_file)
                 dst = os.path.join(Config.DOWNLOAD_DIR, job.final_name)
-                try:
-                    os.rename(src, dst)
-                except Exception:
-                    dst = src
+                try: os.rename(src, dst)
+                except: dst = src
 
-                # --- Generate Thumbnail ---
+                # --- THUMBNAIL LOGIC ---
                 thumb_path = await generate_thumbnail(dst)
-                # --------------------------
-
-                # upload with progress UI
+                
                 t0 = time.time()
                 await client.send_document(
                     job.chat_id,
@@ -272,42 +259,28 @@ async def queue_worker(client: Client):
                     progress=progress_bar,
                     progress_args=('Uploading…', job.status_msg, t0, job.job_id)
                 )
-                
-                # --- Clean up Thumbnail ---
+
                 if thumb_path and os.path.exists(thumb_path):
                     os.remove(thumb_path)
+                # -----------------------
 
-                await job.status_msg.edit(
-                    f"✅ Job <code>{job.job_id}</code> done.",
-                    parse_mode=ParseMode.HTML
-                )
+                await job.status_msg.edit(f"✅ Job <code>{job.job_id}</code> done.", parse_mode=ParseMode.HTML)
 
-                # cleanup best-effort
                 for fn in (job.vid, job.sub, job.final_name):
-                    try:
-                        if fn:
-                            os.remove(os.path.join(Config.DOWNLOAD_DIR, fn))
-                    except:
-                        pass
+                    try: 
+                        if fn: os.remove(os.path.join(Config.DOWNLOAD_DIR, fn))
+                    except: pass
 
         except asyncio.CancelledError:
             logger.warning(f"Job {job.job_id} was cancelled.")
-            try:
-                await job.status_msg.edit(f"🛑 Job <code>{job.job_id}</code> cancelled.", parse_mode=ParseMode.HTML)
-            except:
-                pass
+            try: await job.status_msg.edit(f"🛑 Job <code>{job.job_id}</code> cancelled.", parse_mode=ParseMode.HTML)
+            except: pass
         except Exception:
-            logger.exception("Unhandled error in queue_worker for job %s", job.job_id)
-            try:
-                await job.status_msg.edit(
-                    f"💥 Unexpected error in <code>{job.job_id}</code>. See <code>logs/bot.log</code>.",
-                    parse_mode=ParseMode.HTML
-                )
-            except:
-                pass
+            logger.exception("Error in queue_worker")
+            try: await job.status_msg.edit(f"💥 Error in <code>{job.job_id}</code>.", parse_mode=ParseMode.HTML)
+            except: pass
         finally:
             job_queue.task_done()
-
 
 @Client.on_message(filters.command('restart') & check_user & filters.private)
 async def restart_bot(client, message):
