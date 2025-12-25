@@ -18,35 +18,35 @@ running_jobs: dict[str, dict] = {}
 
 def get_headers(vid_path):
     host = urlparse(vid_path).hostname or ""
-    referer_url = f"https{'' if 'localhost' in host else 's'}://{host}/"
-    origin_url = referer_url.rstrip('/')
+    
+    # 1. Start with standard arguments
+    # We add a fake "User-Agent" so the server thinks we are a real Chrome browser
+    headers = [
+        '--no-check-certificate',
+        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    ]
 
+    referer_url = "https://topchineseanime.site/"
+    origin_url = "https://topchineseanime.site"
+
+    # 2. Check for the domains
     if "dmcdn.net" in host or "dailymotion.com" in host:
         referer_url = "https://www.dailymotion.com"
         origin_url = "https://www.dailymotion.com"
+        
     elif "topchineseanime.store" in host or "topchineseanime.xyz" in host or "topchineseanime.site" in host:
-        referer_url = "https://topchineseanime.store/"
-        origin_url = "https://topchineseanime.store"
-    # --- THIS IS THE FIX FOR VIDHIDE / ACEK-CDN ---
-    elif "acek-cdn.com" in host or "vidhide" in host.lower():
-        # UPDATED: Use .site because that is where you are watching now
-        referer_url = "https://topchineseanime.site/" 
+        referer_url = "https://topchineseanime.site/"
         origin_url = "https://topchineseanime.site"
-    cmd = [
-        YT_DLP_PATH,
-        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
-        '--referer', referer_url,
-        '--add-header', 'Accept: */*',
-        '--add-header', 'Accept-Language: en-US,en;q=0.9',
-        '--add-header', f'Origin: {origin_url}',
-        '--add-header', 'sec-fetch-dest: empty',
-        '--add-header', 'sec-fetch-mode: cors',
-        '--add-header', 'sec-fetch-site: same-origin'
-    ]
-    if os.path.exists(COOKIE_FILE_PATH):
-        cmd += ['--cookie', COOKIE_FILE_PATH]
+        
+    elif "acek-cdn.com" in host or "vidhide" in host.lower():
+        referer_url = "https://topchineseanime.site/"
+        origin_url = "https://topchineseanime.site"
+
+    # 3. Add the Referer and Origin headers
+    headers.extend(['--add-header', f'Referer:{referer_url}'])
+    headers.extend(['--add-header', f'Origin:{origin_url}'])
     
-    return cmd
+    return headers
 
 
 
