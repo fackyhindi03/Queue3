@@ -443,7 +443,7 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
     output   = f"{base}_hard.mp4"
     out_path = os.path.join(Config.DOWNLOAD_DIR, output)
 
-if is_url:
+    if is_url:
         # Use the helper function for headers
         yt_cmd = get_headers(vid_path) + ['-o', '-', '--no-progress', vid_path]
         yt_cmd_str = " ".join([shlex.quote(p) for p in yt_cmd])
@@ -573,7 +573,7 @@ async def nosub_encode(vid_filename: str, msg, job_id: str):
     output   = f"{base}_enc.mp4"
     out_path = os.path.join(Config.DOWNLOAD_DIR, output)
 
-if is_url:
+    if is_url:
         # Use the helper function
         yt_cmd = get_headers(vid_path) + ['-o', '-', '--no-progress', vid_path]
         yt_cmd_str = " ".join([shlex.quote(p) for p in yt_cmd])
