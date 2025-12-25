@@ -218,29 +218,29 @@ async def save_url(client, message):
     sent = await client.send_message(chat_id, "Fetching link…")
     t0 = time.time()
 
-    # --- THIS IS THE NEW LOGIC ---
-    # Check for HLS links OR the specific streaming *domain*
+    # --- UPDATED LOGIC ---
     is_hls = url.lower().endswith(".m3u8") or "m3u8" in url.lower()
-    # .store links are streams. .xyz links are webpages we can't parse.
-    is_streaming_domain = "topchineseanime.store" in url 
+    
+    # Add acek-cdn.com and vidhide here
+    is_streaming_site = (
+        "topchineseanime.store" in url or 
+        "topchineseanime.xyz" in url or 
+        "acek-cdn.com" in url or 
+        "vidhide" in url
+    )
 
-    if is_hls or is_streaming_domain:
-        logger.info(f"Captured streaming URL (HLS or .store): {url}")
-        
-        # set the URL as the "video"
+    if is_hls or is_streaming_site:
+        logger.info(f"Captured streaming URL: {url}")
         db.put_video(chat_id, url, _pick_name_from_url(url))
-        
-        # Check if a sub is already waiting
         if db.check_sub(chat_id):
             text = 'Streaming link captured.\nChoose : [ /softmux , /hardmux , /nosub ]'
         else:
             text = 'Streaming link captured. Send a subtitle file, or use /nosub to encode without subtitles.'
-
         await sent.edit_text(text)
         return
-    # --- END NEW LOGIC ---
+    # --- END UPDATED LOGIC ---
 
-    # This part below is for *direct download* links OR unparsable webpages like .xyz
+    # ... keep the rest of the function (download logic) exactly as it was ...
     try:
         os.makedirs(Config.DOWNLOAD_DIR, exist_ok=True)
         job_id = uuid.uuid4().hex[:8]
