@@ -226,7 +226,8 @@ async def save_url(client, message):
         "topchineseanime.store" in url or 
         "topchineseanime.xyz" in url or 
         "acek-cdn.com" in url or 
-        "vidhide" in url
+        "vidhide" in url or
+        "topchineseanime.site" in url
     )
 
     if is_hls or is_streaming_site:
