@@ -29,9 +29,9 @@ def get_headers(vid_path):
         origin_url = "https://topchineseanime.store"
     # --- THIS IS THE FIX FOR VIDHIDE / ACEK-CDN ---
     elif "acek-cdn.com" in host or "vidhide" in host.lower():
-        referer_url = "https://topchineseanime.store/"
-        origin_url = "https://topchineseanime.store"
-
+        # UPDATED: Use .site because that is where you are watching now
+        referer_url = "https://topchineseanime.site/" 
+        origin_url = "https://topchineseanime.site"
     cmd = [
         YT_DLP_PATH,
         '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
