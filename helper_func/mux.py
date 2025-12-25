@@ -22,6 +22,7 @@ def get_headers(vid_path):
     # 1. Start with standard arguments
     # We add a fake "User-Agent" so the server thinks we are a real Chrome browser
     headers = [
+        YT_DLP_PATH,
         '--no-check-certificate',
         '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     ]
