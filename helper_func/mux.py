@@ -4,6 +4,18 @@ from urllib.parse import urlparse
 from helper_func.settings_manager import SettingsManager
 from pyrogram.enums import ParseMode
 
+logger = logging.getLogger("mux.ffmpeg")
+
+# --- DEFINE PATHS (Missing Part) ---
+# Get the directory of the current python executable
+VENV_BIN_DIR = os.path.dirname(sys.executable)
+# Define the full path to the yt-dlp executable
+YT_DLP_PATH = os.path.join(VENV_BIN_DIR, 'yt-dlp')
+# -----------------------------------
+
+COOKIE_FILE_PATH = "cookies.txt"
+# Track running jobs so /cancel can kill ffmpeg
+running_jobs: dict[str, dict] = {}
 
 def get_headers(vid_path):
     host = urlparse(vid_path).hostname or ""
@@ -38,9 +50,6 @@ def get_headers(vid_path):
     return cmd
 
 
-logger = logging.getLogger("mux.ffmpeg")
-# Track running jobs so /cancel can kill ffmpeg
-running_jobs: dict[str, dict] = {}
 
 # Parse both classic ffmpeg stats AND -progress key/value output
 progress_pattern = re.compile(
