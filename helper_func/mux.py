@@ -4,6 +4,40 @@ from urllib.parse import urlparse
 from helper_func.settings_manager import SettingsManager
 from pyrogram.enums import ParseMode
 
+
+def get_headers(vid_path):
+    host = urlparse(vid_path).hostname or ""
+    referer_url = f"https{'' if 'localhost' in host else 's'}://{host}/"
+    origin_url = referer_url.rstrip('/')
+
+    if "dmcdn.net" in host or "dailymotion.com" in host:
+        referer_url = "https://www.dailymotion.com"
+        origin_url = "https://www.dailymotion.com"
+    elif "topchineseanime.store" in host or "topchineseanime.xyz" in host:
+        referer_url = "https://topchineseanime.store/"
+        origin_url = "https://topchineseanime.store"
+    # --- THIS IS THE FIX FOR VIDHIDE / ACEK-CDN ---
+    elif "acek-cdn.com" in host or "vidhide" in host.lower():
+        referer_url = "https://topchineseanime.store/"
+        origin_url = "https://topchineseanime.store"
+
+    cmd = [
+        YT_DLP_PATH,
+        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
+        '--referer', referer_url,
+        '--add-header', 'Accept: */*',
+        '--add-header', 'Accept-Language: en-US,en;q=0.9',
+        '--add-header', f'Origin: {origin_url}',
+        '--add-header', 'sec-fetch-dest: empty',
+        '--add-header', 'sec-fetch-mode: cors',
+        '--add-header', 'sec-fetch-site: same-origin'
+    ]
+    if os.path.exists(COOKIE_FILE_PATH):
+        cmd += ['--cookie', COOKIE_FILE_PATH]
+    
+    return cmd
+
+
 logger = logging.getLogger("mux.ffmpeg")
 # Track running jobs so /cancel can kill ffmpeg
 running_jobs: dict[str, dict] = {}
@@ -409,53 +443,48 @@ async def hardmux_vid(vid_filename: str, sub_filename: str, msg, job_id: str):
     output   = f"{base}_hard.mp4"
     out_path = os.path.join(Config.DOWNLOAD_DIR, output)
 
-    if is_url:
-        # ---- NEW: Build yt-dlp + ffmpeg shell command ----
-        host = urlparse(vid_path).hostname or ""
-        yt_dlp_cmd_parts = ['yt-dlp', '-o', '-']
+if is_url:
+        # Use the helper function for headers
+        yt_cmd = get_headers(vid_path) + ['-o', '-', '--no-progress', vid_path]
+        yt_cmd_str = " ".join([shlex.quote(p) for p in yt_cmd])
         
-        if "dmcdn.net" in host or "dailymotion.com" in host:
-            logger.info("Applying Dailymotion headers to yt-dlp")
-            yt_dlp_cmd_parts += ["--user-agent", "Mozilla/5.0", "--referer", "https::/www.dailymotion.com"]
-        
-        yt_dlp_cmd_parts.append(vid_path)
-        yt_dlp_cmd_str = " ".join([shlex.quote(p) for p in yt_dlp_cmd_parts])
-        
-        ffmpeg_cmd_parts = [
-            'ffmpeg','-hide_banner',
-            '-progress', 'pipe:2', '-nostats',
-            '-i', '-',         # Read video from stdin (yt-dlp)
-            '-i', sub_path,    # Read subtitle from file
-            '-vf', vf_arg,
-            '-pix_fmt', 'yuv420p',
+        ff_cmd = [
+            'ffmpeg', '-hide_banner', '-progress', 'pipe:2', '-nostats',
+            '-i', '-',         # Read video from stdin
+            '-i', sub_path,    # Read subtitle
+            '-vf', vf_arg, 
+            '-pix_fmt', 'yuv420p', # <--- FIX FOR 4K VIDEO
             '-c:v', codec, '-preset', preset, '-crf', crf,
-            '-map','0:v:0','-map','0:a:0?',
-            '-c:a','copy',
+            '-map', '0:v:0', '-map', '0:a:0?', 
+            # REMOVED -map 1:s:0 and -c:s mov_text HERE (Fixes double subs)
+            '-c:a', 'copy',
             '-y', out_path
         ]
-        ffmpeg_cmd_str = " ".join([shlex.quote(p) for p in ffmpeg_cmd_parts])
-
-        full_command = f"{yt_dlp_cmd_str} | {ffmpeg_cmd_str}"
-        logger.info(f"Starting shell pipe for job {job_id}: yt-dlp | ffmpeg (hardmux)")
+        ff_cmd_str = " ".join([shlex.quote(p) for p in ff_cmd])
         
         proc = await asyncio.create_subprocess_shell(
-            full_command,
+            f"{yt_cmd_str} | {ff_cmd_str}",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
         
     else:
-        # ---- OLD: Original logic for local files ----
-        proc = await asyncio.create_subprocess_exec(
-            'ffmpeg','-hide_banner',
-            '-progress', 'pipe:2', '-nostats',
+        # Local file logic
+        cmd = [
+            'ffmpeg', '-hide_banner', '-progress', 'pipe:2', '-nostats',
             '-i', vid_path,
             '-i', sub_path,
-            '-vf', vf_arg,
+            '-vf', vf_arg, 
+            '-pix_fmt', 'yuv420p', # <--- FIX FOR 4K VIDEO
             '-c:v', codec, '-preset', preset, '-crf', crf,
-            '-map','0:v:0','-map','0:a:0?',
-            '-c:a','copy',
-            '-y', out_path,
+            '-map', '0:v:0', '-map', '0:a:0?', 
+            # REMOVED -map 1:s:0 and -c:s mov_text HERE
+            '-c:a', 'copy',
+            '-y', out_path
+        ]
+        
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
@@ -544,57 +573,41 @@ async def nosub_encode(vid_filename: str, msg, job_id: str):
     output   = f"{base}_enc.mp4"
     out_path = os.path.join(Config.DOWNLOAD_DIR, output)
 
-    if is_url:
-        # ---- NEW: Build yt-dlp + ffmpeg shell command ----
+if is_url:
+        # Use the helper function
+        yt_cmd = get_headers(vid_path) + ['-o', '-', '--no-progress', vid_path]
+        yt_cmd_str = " ".join([shlex.quote(p) for p in yt_cmd])
         
-        # Build the yt-dlp part
-        host = urlparse(vid_path).hostname or ""
-        yt_dlp_cmd_parts = ['yt-dlp', '-o', '-'] # Output to stdout
-        
-        if "dmcdn.net" in host or "dailymotion.com" in host:
-            logger.info("Applying Dailymotion headers to yt-dlp")
-            yt_dlp_cmd_parts += ["--user-agent", "Mozilla/5.0", "--referer", "https://www.dailymotion.com"]
-        
-        yt_dlp_cmd_parts.append(vid_path)
-        
-        # Quote each part for shell safety
-        yt_dlp_cmd_str = " ".join([shlex.quote(p) for p in yt_dlp_cmd_parts])
-        
-        # Build the ffmpeg part
-        ffmpeg_cmd_parts = [
+        ff_cmd = [
             'ffmpeg', '-hide_banner', '-progress', 'pipe:2', '-nostats',
-            '-i', '-', # Read from stdin
-            *vf_args,
-            '-pix_fmt', 'yuv420p',
+            '-i', '-', 
+            *vf_args, 
+            '-pix_fmt', 'yuv420p', # <--- FIX FOR 4K VIDEO
             '-c:v', codec, '-preset', preset, '-crf', crf,
             '-map', '0:v:0', '-map', '0:a:0?', '-c:a', 'copy',
             '-y', out_path
         ]
-        ffmpeg_cmd_str = " ".join([shlex.quote(p) for p in ffmpeg_cmd_parts])
+        ff_cmd_str = " ".join([shlex.quote(p) for p in ff_cmd])
 
-        # Create the full shell command
-        full_command = f"{yt_dlp_cmd_str} | {ffmpeg_cmd_str}"
-        
-        logger.info(f"Starting shell pipe for job {job_id}: yt-dlp | ffmpeg")
-        
         proc = await asyncio.create_subprocess_shell(
-            full_command,
+            f"{yt_cmd_str} | {ff_cmd_str}",
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE  # read_stderr will capture output from both
+            stderr=asyncio.subprocess.PIPE
         )
         
     else:
-        # ---- OLD: Original logic for local files ----
-        args = ['ffmpeg', '-hide_banner', '-progress', 'pipe:2', '-nostats']
-        args += [
-            '-i', vid_path, *vf_args,
+        cmd = [
+            'ffmpeg', '-hide_banner', '-progress', 'pipe:2', '-nostats',
+            '-i', vid_path,
+            *vf_args, 
+            '-pix_fmt', 'yuv420p', # <--- FIX FOR 4K VIDEO
             '-c:v', codec, '-preset', preset, '-crf', crf,
             '-map', '0:v:0', '-map', '0:a:0?', '-c:a', 'copy',
             '-y', out_path
         ]
         
         proc = await asyncio.create_subprocess_exec(
-            *args,
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
