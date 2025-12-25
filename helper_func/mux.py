@@ -24,7 +24,7 @@ def get_headers(vid_path):
     if "dmcdn.net" in host or "dailymotion.com" in host:
         referer_url = "https://www.dailymotion.com"
         origin_url = "https://www.dailymotion.com"
-    elif "topchineseanime.store" in host or "topchineseanime.xyz" in host:
+    elif "topchineseanime.store" in host or "topchineseanime.xyz" in host or "topchineseanime.site" in host:
         referer_url = "https://topchineseanime.store/"
         origin_url = "https://topchineseanime.store"
     # --- THIS IS THE FIX FOR VIDHIDE / ACEK-CDN ---
